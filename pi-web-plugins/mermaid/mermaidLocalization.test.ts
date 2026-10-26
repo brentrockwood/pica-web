@@ -1,11 +1,14 @@
 // @vitest-environment happy-dom
 import { html, svg } from "lit";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LocalizationService } from "../../src/client/src/localization/service";
 import { createPluginLocalization } from "../../src/client/src/plugins/localization";
 import { MermaidPreview } from "./MermaidPreview";
 import { createMermaidContent } from "./mermaidLocalization";
 import plugin from "./pi-web-plugin";
+import { mockMermaidCanvas } from "./mermaidTheme.testSupport";
+
+beforeEach(mockMermaidCanvas);
 
 customElements.define("pi-web-mermaid-preview", MermaidPreview);
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); });
@@ -45,7 +48,7 @@ it("updates pending status and iframe names without reloading the engine or modi
   expect(element.loadEngine).toHaveBeenCalledOnce();
   const post = vi.spyOn(frame.contentWindow, "postMessage").mockImplementation(() => undefined);
   window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, data: { type: "mermaid-ready" } }));
-  expect(post).toHaveBeenCalledWith({ type: "mermaid-render", text: input.text }, "*");
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "mermaid-render", text: input.text }), "*");
   expect(input.fail).not.toHaveBeenCalled();
   element.remove();
   lifetime.abort();
