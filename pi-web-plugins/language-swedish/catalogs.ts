@@ -1418,6 +1418,8 @@ const catalogs: Record<string, Record<string, string>> = {
     "paperDescription": "Vitt och neutrala gråtoner med diskreta statusfärger.",
     "graphiteName": "Grafit",
     "graphiteDescription": "Kolgrått och neutrala gråtoner med diskreta statusfärger.",
+    "picaName": "Lab",
+    "picaDescription": "Ett lugnt mörkt tema med centrerad konversation och mjukare kontrast.",
     "piWebPairName": "PI WEB",
     "piWebPairDescription": "Följ systemets ljusa eller mörka läge med PI WEB-teman.",
     "neutralPairName": "Papper / Grafit",

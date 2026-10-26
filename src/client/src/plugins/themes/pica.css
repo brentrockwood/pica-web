@@ -1,0 +1,49 @@
+:root {
+  --pi-text: #c8c8c8;
+  --pi-text-secondary: #acacac;
+  --pi-border: #424242;
+  --pi-border-muted: #303030;
+  --pi-chat-user-bg: #242424;
+}
+
+:host(chat-view) {
+  font-size: 15px;
+}
+
+:host(chat-view) .chat {
+  padding-block: 20px 24px;
+}
+
+/* Center the content, not the scroller, so the gutters still accept scrolling. */
+:host(chat-view) .chat > * {
+  box-sizing: border-box;
+  inline-size: calc(100% - 32px);
+  max-inline-size: 48rem;
+  margin-inline: auto;
+}
+
+:host(chat-view) .msg.conversation-message {
+  border-inline-start: 0;
+  margin-block-end: 24px;
+}
+
+:host(chat-view) .conversation-body {
+  padding: 16px 20px;
+}
+
+:host(chat-view) .msg.user {
+  border-radius: 12px;
+  margin-block-start: 8px;
+}
+
+:host(chat-view) .msg.event-group {
+  margin-block-end: 20px;
+}
+
+:host(chat-view) .chat > :last-child {
+  margin-block-end: 0;
+}
+
+:host(formatted-text) .formatted {
+  line-height: 1.65;
+}

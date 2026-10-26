@@ -1158,6 +1158,8 @@ const catalogs: Record<string, Record<string, string>> = {
     "paperDescription": "Blanco y grises neutros con colores de estado discretos.",
     "graphiteName": "Grafito",
     "graphiteDescription": "Carbón y grises neutros con colores de estado discretos.",
+    "picaName": "Lab",
+    "picaDescription": "Un tema oscuro y discreto con la conversación centrada y un contraste más suave.",
     "piWebPairName": "PI WEB",
     "piWebPairDescription": "Sigue la preferencia clara u oscura del sistema con los temas de PI WEB.",
     "neutralPairName": "Papel / Grafito",

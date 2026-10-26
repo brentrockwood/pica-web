@@ -23,6 +23,7 @@ describe("built-in CSS themes", () => {
       { id: "themes:classic", colorScheme: "dark" },
       { id: "themes:paper", colorScheme: "light" },
       { id: "themes:graphite", colorScheme: "dark" },
+      { id: "themes:pica", colorScheme: "dark" },
     ]);
     expect(themePairs.map((pair) => ({ id: pair.id, light: pair.light, dark: pair.dark }))).toEqual([
       { id: "themes:pi-web", light: "themes:pi-web-light", dark: "themes:pi-web-dark" },
@@ -40,6 +41,16 @@ describe("built-in CSS themes", () => {
       });
       expect(activeTheme?.id).toBe(`themes:${prefersLight ? "paper" : "graphite"}`);
       expect(activeTheme?.stylesheets?.[0]?.url).toMatch(/\/(paper|graphite)\.css\?no-inline$/);
+    }
+    const pica = themes.find((theme) => theme.id === "themes:pica");
+    expect(pica?.name).toBe("Lab");
+    expect(pica?.stylesheets?.map(({ id, url, order }) => ({ id, order, file: new URL(url).pathname.split("/").at(-1) }))).toEqual([
+      { id: "themes:pica:palette", order: 0, file: "graphite.css" },
+      { id: "themes:pica:conversation", order: 10, file: "pica.css" },
+    ]);
+    expect(themes.find((theme) => theme.id === "themes:graphite")?.stylesheets).toHaveLength(1);
+    for (const prefersLight of [false, true]) {
+      expect(resolveThemePreference({ themes, themePairs, preference: { themeId: "themes:pica", auto: false }, prefersLight }).activeTheme?.id).toBe("themes:pica");
     }
     const light = themes.find((theme) => theme.colorScheme === "light");
     if (light === undefined) throw new Error("Missing built-in Light theme");

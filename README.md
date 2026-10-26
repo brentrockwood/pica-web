@@ -1,4 +1,12 @@
-# PI WEB
+# pica-web
+
+**pica-web is an experimental fork of [PI WEB](https://github.com/jmfederico/pi-web) for UI experiments and research into agent interfaces.**
+
+Experiments may remain specific to this fork or become contributions to upstream PI WEB. The fork may be permanent; upstream adoption is not a requirement for work here.
+
+To run this fork from source, see [Development](#development). Package names and commands still use `pi-web`. The badges, screenshots, published package, and website links below refer to upstream PI WEB.
+
+## Upstream PI WEB
 
 [![CI](https://github.com/jmfederico/pi-web/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jmfederico/pi-web/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@jmfederico/pi-web)](https://www.npmjs.com/package/@jmfederico/pi-web)
@@ -19,7 +27,9 @@ Run agents where your code, tools, credentials, and build caches live. Supervise
 
 [Explore devices and themes](https://pi-web.dev/)
 
-## Quick start
+## Upstream quick start
+
+These commands install upstream PI WEB, not this fork.
 
 The recommended setup uses Node.js 22.19.0+, npm, Pi Coding Agent installed and configured for your user, git, and the development tools your agents need. [Best-effort Bun support](https://pi-web.dev/install#bun) is also available.
 
@@ -58,7 +68,7 @@ PI WEB assumes trusted users, repositories, paths, and plugins. It is not a sand
 
 For remote access, use a trusted private network, VPN, SSH tunnel, or authenticated reverse proxy. Do not expose PI WEB directly to the public internet.
 
-## Documentation
+## Upstream documentation
 
 - [Website](https://pi-web.dev/)
 - [Install](https://pi-web.dev/install)

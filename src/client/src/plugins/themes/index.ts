@@ -49,6 +49,17 @@ export const themePackPlugin: PiWebPlugin = {
           colorScheme: "dark",
           stylesheets: [{ id: "palette", url: new URL("./graphite.css?no-inline", import.meta.url).href }],
         },
+        {
+          id: "pica",
+          get name() { return messages.t("picaName"); },
+          get description() { return messages.t("picaDescription"); },
+          order: 60,
+          colorScheme: "dark",
+          stylesheets: [
+            { id: "palette", order: 0, url: new URL("./graphite.css?no-inline", import.meta.url).href },
+            { id: "conversation", order: 10, url: new URL("./pica.css?no-inline", import.meta.url).href },
+          ],
+        },
       ],
       themePairs: [
         {

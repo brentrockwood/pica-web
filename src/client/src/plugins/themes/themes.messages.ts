@@ -11,6 +11,8 @@ export default {
   paperDescription: message("White and neutral grays with restrained status colors.", "Neutral light theme description"),
   graphiteName: message("Graphite", "Built-in neutral dark theme display name"),
   graphiteDescription: message("Charcoal and neutral grays with restrained status colors.", "Neutral dark theme description"),
+  picaName: message("Lab", "Rockwood Lab theme display name; preserve Lab branding"),
+  picaDescription: message("A quiet dark theme with a centered conversation and softer contrast.", "Fork dark theme description"),
   piWebPairName: message("PI WEB", "Built-in light/dark theme pair display name; preserve branding"),
   piWebPairDescription: message("Follow the system light/dark preference with PI WEB themes.", "Built-in light/dark theme pair description"),
   neutralPairName: message("Paper / Graphite", "Neutral light/dark theme pair display name; use the translated theme names"),
