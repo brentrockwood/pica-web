@@ -1,3 +1,4 @@
+import type { PendingPrompt } from "../pendingPrompts";
 import { LocalizationController, localization } from "../localization/browser";
 import { chatTranscriptMessages } from "../chatTranscriptMessages";
 import { chatChromeMessages as chrome } from "../chatChromeMessages";
@@ -143,6 +144,7 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) isSendingPrompt = false;
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Number }) pendingMessageCount = 0;
+  @property({ attribute: false }) pendingPrompts: PendingPrompt[] = [];
   @property({ attribute: false }) clientQueuedMessages: QueuedSessionMessage[] = [];
   @property({ attribute: false }) status?: SessionStatus;
   @property({ attribute: false }) activity?: SessionActivity;
@@ -435,7 +437,10 @@ export class ChatView extends LitElement {
 
   private renderQueuedMessages() {
     const serverQueued = this.status?.queuedMessages ?? [];
-    return html`${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued, (source, count) => ({
+    return html`${this.pendingPrompts.map((prompt) => this.renderQueuedMessageList({
+      source: "pending", heading: chrome.t(prompt.error === undefined ? "promptPending" : "promptFailed"),
+      detail: prompt.error ?? chrome.t("promptPendingDetail"), messages: [prompt.preview],
+    }))}${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued, (source, count) => ({
       heading: chrome.t(source === "client" ? "clientHeading" : "serverHeading"),
       detail: source === "client" ? chrome.t("clientDetail") : chrome.t("pending", { count }),
     })).map((section) => this.renderQueuedMessageList(section))}
@@ -623,7 +628,7 @@ export class ChatView extends LitElement {
   }
 
   private scrollContentChanged(changed: Map<string, unknown>): boolean {
-    return changed.has("messages") || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs");
+    return changed.has("messages") || changed.has("pendingPrompts") || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs");
   }
 
   private requestLoadMore(): void {

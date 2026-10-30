@@ -9,7 +9,7 @@ import { renderCopyIcon, renderGoBackIcon, renderTrashIcon } from "../messageAct
 import { renderQueueIcon, renderSteerIcon } from "../promptEditorIcons";
 
 export interface QueuedMessageSection {
-  source: "client" | "server";
+  source: "client" | "server" | "pending";
   heading: string;
   detail: string;
   messages: QueuedSessionMessage[];
@@ -18,7 +18,7 @@ export interface QueuedMessageSection {
 export function chatQueuedMessageSections(
   clientQueued: QueuedSessionMessage[],
   serverQueued: QueuedSessionMessage[],
-  present: (source: QueuedMessageSection["source"], count: number) => Pick<QueuedMessageSection, "heading" | "detail"> = (source, count) => source === "client"
+  present: (source: "client" | "server", count: number) => Pick<QueuedMessageSection, "heading" | "detail"> = (source, count) => source === "client"
     ? { heading: "Queued until session starts", detail: "Will send once the backend session is ready" }
     : { heading: "Queued messages", detail: `${String(count)} pending` },
 ): QueuedMessageSection[] {

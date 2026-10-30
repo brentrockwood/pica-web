@@ -1,3 +1,4 @@
+import type { PendingPrompt } from "./pendingPrompts";
 import type { AuthProviderOption, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceProviderResolution } from "./api";
 import type { ChatLine } from "./chatTypes";
 import type { MachineStatusSnapshot } from "../../shared/machineStatus";
@@ -30,6 +31,8 @@ export interface AppState {
   isLoadingEarlierMessages: boolean;
   /** Sessions with a prompt upload in flight, keyed by sessionId (client-owned). */
   sendingPrompts: Record<string, true>;
+  /** Browser-local submissions keyed by machine/session; not transcript history. */
+  pendingPrompts: Record<string, PendingPrompt[]>;
   /** Client-side queued sends waiting for a just-created backend session, keyed by sessionId. */
   clientQueuedSessionMessages: Record<string, QueuedSessionMessage[]>;
   /** Client-initiated session creation requests waiting for the server. */
@@ -142,6 +145,7 @@ export function initialAppState(): AppState {
     messagePageTotal: 0,
     isLoadingEarlierMessages: false,
     sendingPrompts: {},
+    pendingPrompts: {},
     clientQueuedSessionMessages: {},
     startingSessionCount: 0,
     isLoadingProjects: false,

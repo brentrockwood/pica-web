@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatView } from "./ChatView";
 import { writeClipboardText } from "../clipboard";
 import { queuedMessageRecallConfirmation } from "../queuedMessageActions";
+import { createPendingPrompt } from "../pendingPrompts";
 import type { QueuedSessionMessage } from "../api";
 
 vi.mock("../clipboard", () => ({ writeClipboardText: vi.fn().mockResolvedValue(true) }));
@@ -36,6 +37,23 @@ function button(view: ChatView, selector: string): HTMLButtonElement {
 }
 
 describe("queued message actions", () => {
+  it("renders pending and failed submissions as live local feedback with copy but no server queue actions", async () => {
+    const view = await queuedView([]);
+    const preview = { kind: "followUp" as const, text: "hello" };
+    const pending = createPendingPrompt(1, preview, "hello", 0, [], 0, []);
+    view.pendingPrompts = [pending];
+    await view.updateComplete;
+    expect(view.shadowRoot?.querySelector('[aria-live="polite"].queued-messages')?.textContent).toContain("Pending prompt");
+    expect(view.shadowRoot?.querySelector("formatted-text")).toHaveProperty("text", "hello");
+    expect(view.shadowRoot?.querySelector('[aria-label="Remove queued message"]')).toBeNull();
+    button(view, '[aria-label="Copy queued message"]').click();
+    expect(writeClipboardText).toHaveBeenCalledWith("hello");
+    view.pendingPrompts = [{ ...pending, error: "offline" }];
+    await view.updateComplete;
+    expect(view.shadowRoot?.textContent).toContain("Prompt submission failed");
+    expect(view.shadowRoot?.textContent).toContain("offline");
+  });
+
   it("shows attachment indicators and counts, including attachment-only messages", async () => {
     const view = await queuedView([
       { kind: "steer", text: "picture", hasAttachments: true, attachmentCount: 1 },

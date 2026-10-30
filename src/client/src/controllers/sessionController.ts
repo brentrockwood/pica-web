@@ -1,3 +1,4 @@
+import { createPendingPrompt, reconcilePendingPrompts } from "../pendingPrompts";
 import { api as defaultApi, type AskUserSubmission, type CommandResult, type ExtensionDialogAnswer, type ExtensionDialogCloseReason, type ExtensionDialogCloseResponse, type ExtensionDialogOutcome, type MessagePage, type PendingExtensionDialog, type PromptAttachment, type QueuedSessionMessage, type SessionActivity, type SessionBulkFailure, type SessionCleanupExecuteResponse, type SessionInfo, type SessionModelCatalogEntry, type SessionModelScopeMode, type SessionRef, type SessionStatus, type SessionStreamSnapshot, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSnapshot, type SessionTreeSummaryChoice, type Workspace } from "../api";
 import type { AppState, ClosedExtensionDialog } from "../appState";
 import { NetworkRequestError } from "../api/http";
@@ -203,6 +204,21 @@ export class SessionController {
     private readonly sessionSelection: SessionSelectionMemory = new InMemorySessionSelectionMemory(),
     deps: SessionControllerDependencies = {},
   ) {
+    // Reconcile at the selected-state boundary so snapshots, live events, and
+    // cached reselections all preserve the same browser-local receipt state.
+    this.setState = (patch) => {
+      const state = { ...getState(), ...patch };
+      const session = state.selectedSession;
+      if (session !== undefined) {
+        const key = machineSessionKey(selectedMachineId(state), session.id);
+        const pending = state.pendingPrompts[key];
+        if (pending !== undefined && pending.length > 0) {
+          const remaining = reconcilePendingPrompts(pending, state.messages, state.status?.queuedMessages ?? []);
+          if (remaining.length !== pending.length) patch = { ...patch, pendingPrompts: { ...state.pendingPrompts, [key]: remaining } };
+        }
+      }
+      setState(patch);
+    };
     this.socket = deps.socket ?? new SessionSocket();
     this.api = deps.api ?? defaultApi;
     this.transcripts = deps.transcripts ?? new ChatTranscriptStore();
@@ -529,7 +545,7 @@ export class SessionController {
     // session even if the user navigates elsewhere mid-upload.
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
-    return this.deliverPromptToSession(session, text, streamingBehavior, attachments, delivery, folder, machineId, { markSending: hasAttachments || promptOnly }, errorOwner);
+    return this.deliverPromptToSession(session, text, streamingBehavior, attachments, delivery, folder, machineId, errorOwner);
   }
 
   private markSendingPrompt(sessionId: string, sending: boolean): void {
@@ -587,21 +603,42 @@ export class SessionController {
 
   private async flushQueuedPendingSends(session: SessionInfo, machineId: string, queuedSends: readonly QueuedPendingSessionSend[], errorOwner: SessionBrowserErrorOwner): Promise<void> {
     for (const queued of queuedSends) {
+      // Prompt delivery takes over the local preview before awaiting the API.
+      if (queued.type === "prompt") this.dropNextQueuedSessionMessage(session.id);
       const delivered = await this.deliverQueuedPendingSend(session, machineId, queued, errorOwner);
       if (!delivered) return;
-      this.dropNextQueuedSessionMessage(session.id);
+      if (queued.type !== "prompt") this.dropNextQueuedSessionMessage(session.id);
     }
   }
 
   private async deliverQueuedPendingSend(session: SessionInfo, machineId: string, queued: QueuedPendingSessionSend, errorOwner: SessionBrowserErrorOwner): Promise<boolean> {
-    if (queued.type === "prompt") return this.deliverPromptToSession(session, queued.text, queued.streamingBehavior, queued.attachments, queued.delivery, queued.folder, machineId, { markSending: true }, errorOwner);
+    if (queued.type === "prompt") return this.deliverPromptToSession(session, queued.text, queued.streamingBehavior, queued.attachments, queued.delivery, queued.folder, machineId, errorOwner);
     if (queued.type === "shell") return this.deliverShellToSession(session, queued.text, machineId, { optimisticLine: true }, errorOwner);
     return this.deliverCommandToSession(session, queued.text, machineId, { applyResult: true }, errorOwner);
   }
 
-  private async deliverPromptToSession(session: SessionInfo, text: string, streamingBehavior: "steer" | "followUp" | undefined, attachments: PromptAttachment[] | undefined, delivery: PromptAttachmentDelivery, folder: string | undefined, machineId: string, options: { markSending: boolean }, errorOwner: SessionBrowserErrorOwner): Promise<boolean> {
+  private async deliverPromptToSession(session: SessionInfo, text: string, streamingBehavior: "steer" | "followUp" | undefined, attachments: PromptAttachment[] | undefined, delivery: PromptAttachmentDelivery, folder: string | undefined, machineId: string, errorOwner: SessionBrowserErrorOwner): Promise<boolean> {
     const hasAttachments = attachments !== undefined && attachments.length > 0;
-    if (options.markSending) this.markSendingPrompt(session.id, true);
+    const key = machineSessionKey(machineId, session.id);
+    const state = this.getState();
+    const id = ++this.pendingQueuedSendSeq;
+    const preview = queuedSessionMessagePreview({ id: String(id), type: "prompt", text, streamingBehavior, attachments, delivery, folder });
+    const view = this.isSelectedSessionIdentity(session.id, machineId) ? state : this.transcripts.cachedView(key);
+    const pending = createPendingPrompt(id, preview, text, delivery === "inline" ? attachments?.length ?? 0 : 0,
+      view.messages, Math.max(view.messagePageTotal, session.messageCount), state.pendingPrompts[key] ?? [],
+      this.isSelectedSessionIdentity(session.id, machineId) ? state.status?.queuedMessages : undefined);
+    const updatePending = (patch: Partial<typeof pending>): void => {
+      const current = this.getState().pendingPrompts;
+      this.setState({ pendingPrompts: { ...current, [key]: (current[key] ?? []).map((item) => {
+        if (item.id === id) return { ...item, ...patch };
+        if (patch.error !== undefined && item.id > id && item.text === pending.text && item.imageCount === pending.imageCount) {
+          return { ...item, queueOccurrence: Math.max(1, item.queueOccurrence - 1), occurrence: item.anchor === pending.anchor ? Math.max(1, item.occurrence - 1) : item.occurrence };
+        }
+        return item;
+      }) } });
+    };
+    this.setState({ pendingPrompts: { ...state.pendingPrompts, [key]: [...(state.pendingPrompts[key] ?? []), pending] } });
+    this.markSendingPrompt(session.id, true);
     try {
       if (hasAttachments && delivery === "folder") {
         // The composer passes the workspace-effective folder it displayed, so
@@ -610,17 +647,20 @@ export class SessionController {
         const saved = await this.api.saveAttachments(session, attachments, machineId, folder);
         const references = saved.map((file) => fileCompletionInsertText(file.path, false)).join(" ");
         const body = text === "" ? references : `${text}\n\n${references}`;
+        updatePending({ text: body });
         await this.api.prompt(session, body, streamingBehavior, machineId);
       } else {
         await this.api.prompt(session, text, streamingBehavior, machineId, attachments);
       }
+      updatePending({ accepted: true });
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
+      updatePending({ error: String(error) });
       this.reportSessionError(session, machineId, error, errorOwner);
       return false;
     } finally {
-      if (options.markSending) this.markSendingPrompt(session.id, false);
+      this.markSendingPrompt(session.id, false);
     }
   }
 
