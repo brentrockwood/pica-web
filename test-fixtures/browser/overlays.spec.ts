@@ -242,3 +242,43 @@ test("hiding the conversation closes its suggestions", async ({ page }) => {
   await page.evaluate(() => { window.overlayFixture.hideConversation(); });
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
 });
+
+test("chat tables wrap prose and long tokens within the available width", async ({ page }) => {
+  await page.evaluate(() => {
+    const chat = document.querySelector<ChatView>("chat-view");
+    if (!chat) throw new Error("Missing conversation fixture");
+    chat.messages = [{ role: "assistant", parts: [{ type: "text", text: [
+      "| Status | Description and details | Reference |",
+      "| --- | --- | --- |",
+      `| OK | ${"A longer description should wrap without hiding any columns. ".repeat(4)} | [Reference](https://example.com) |`,
+      `| Done | ${"identifier".repeat(18)} | \`${"long_code_token_".repeat(12)}\` |`,
+      `| Ready | More prose | https://example.com/${"long-path-segment".repeat(12)} |`,
+    ].join("\n") }] }];
+  });
+  const table = page.locator("chat-view formatted-text table");
+  await expect(table).toBeVisible();
+  for (const width of [320, 560, 900]) {
+    await page.locator(".conversation").evaluate((element, width) => {
+      if (!(element instanceof HTMLElement)) throw new Error("Missing conversation element");
+      element.style.width = `${String(width)}px`;
+    }, width);
+    const geometry = await table.evaluate((element) => {
+      const wrapper = element.parentElement;
+      const cells = [...element.querySelectorAll("th, td")];
+      const [status, description] = cells;
+      if (!wrapper || !status || !description) throw new Error("Missing table cells or wrapper");
+      return {
+        width: element.getBoundingClientRect().width,
+        available: wrapper.clientWidth,
+        overflow: wrapper.scrollWidth - wrapper.clientWidth,
+        cellOverflow: cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
+        statusWidth: status.getBoundingClientRect().width,
+        descriptionWidth: description.getBoundingClientRect().width,
+      };
+    });
+    expect(geometry.width).toBeLessThanOrEqual(geometry.available + 1);
+    expect(geometry.overflow).toBeLessThanOrEqual(1);
+    expect(geometry.cellOverflow).toBe(false);
+    expect(geometry.descriptionWidth).toBeGreaterThan(geometry.statusWidth);
+  }
+});
