@@ -103,6 +103,8 @@ export interface WorkspaceProviderMetadata {
 export interface WorkspaceRemovalPresentation {
   readonly actionLabel: string;
   readonly confirmation: string;
+  /** Optional provenance for host-localized removal chrome; raw wording remains the fallback. */
+  readonly localization?: import("./workspaceRemovalPresentation.js").WorkspaceRemovalLocalization;
 }
 
 export interface FileTreeEntry {
@@ -170,6 +172,8 @@ interface TerminalCommandRunFields {
   id: string;
   origin: string;
   terminalId: string;
+  /** Generated title provenance; title remains the compatible fallback. */
+  titlePresentation?: import("./terminalTitlePresentation.js").TerminalTitlePresentation;
   title: string;
   command: string;
   status: TerminalCommandRunStatus;

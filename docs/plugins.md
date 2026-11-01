@@ -272,6 +272,15 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 - **Info** displays machine and PI WEB status without requiring a workspace, adds workspace details when selected, and provides copyable diagnostics.
 - **Updates** shows update/restart guidance when relevant and offers a manual update check. Run uses the selected machine's maintenance terminal in `$PI_WEB_DATA_DIR/maintenance` (default `~/.pi-web/maintenance`), whether or not a workspace is selected. It requires an available Terminal provider on that machine; guidance and Copy remain available without one.
 - **Workspace Tasks** turns project commands into runnable buttons.
+- **Spanish / Español** and **Swedish / Svenska** are optional interface language packs, included but disabled by default. See [Language packs](#language-packs) to enable them.
+
+### Language packs
+
+Enable `language-spanish` or `language-swedish` in **Settings → PI WEB plugins** on the gateway machine, then reload the browser. These are browser-only plugins; no session-daemon restart is needed.
+
+In **Settings → General → Language and region**, select **Spanish** (`es`) or **Swedish** (`sv`) as the interface language and apply it to this browser. Language names follow the current interface language. You can enable both packs and switch between them. Browser or gateway language defaults can also select an enabled pack.
+
+The packs translate PI WEB's interface and bundled plugin labels, not conversations, model responses, file contents, or third-party plugins. Missing translations fall back to English. Regional formats, time zone, and clock preferences remain independent of interface language. Disabling a pack and reloading restores English fallback when that language is requested.
 
 ### Automatic Git worktree discovery
 
@@ -324,19 +333,6 @@ The read-only **Relays** tab lists saved packets under `.pi-web/relays/` and sho
 
 PI WEB installs Relay automatically for the active agent profile if it is not configured. Removing it through **Settings → Pi packages** is remembered; it will not be silently reinstalled. Reinstall from **Available packages** if you change your mind. Disabling just the Relays plugin hides its tab and row indicators but leaves its agent resources available.
 
-### Try Captain's Log
-
-Captain's Log is an optional example that retells a conversation's latest assistant reply as a pirate briefing. It demonstrates a browser panel, backend, and Pi companion working together.
-
-1. On the target machine, install **Captain's Log** from **Settings → Pi packages → Available packages**.
-2. Enable it in **Settings → PI WEB plugins**.
-3. Restart that machine's session daemon when safe, then reload the browser.
-4. Select a conversation, open **Captain's Log**, and choose **Let the Captain tell it**.
-
-The package is prebuilt; no compilation is required. It reads the source reply without modifying that conversation and uses a separate pirate conversation. Model credentials are required, and the source text goes to the pirate's model provider. Previous results are saved. After a daemon restart, open the previous pirate conversation in Sessions if you want to reuse its context.
-
-See the [Captain's Log usage guide](https://github.com/jmfederico/pi-web/blob/main/pi-packages/captains-log/docs/usage.md) for the demo's behavior and troubleshooting.
-
 ## Pi extension dialogs
 
 Pi extensions can ask for confirmation, a selection, or text input. PI WEB shows these questions inline in the conversation, including during session startup or while a tool is waiting. They remain answerable after a browser reload, and the first answer wins across tabs.
@@ -374,7 +370,6 @@ Use the smallest example that fits. Source links below track development on `mai
 | A small browser plugin | [Info](https://github.com/jmfederico/pi-web/tree/main/pi-web-plugins/info) |
 | A standalone browser/server package | [Workspace-provider example](https://github.com/jmfederico/pi-web/tree/main/examples/workspace-provider-plugin) |
 | A production workspace provider and paired UI | [Git](https://github.com/jmfederico/pi-web/tree/main/pi-web-plugins/git) |
-| Hosted sessions, live updates, and a Pi companion | [Captain's Log](https://github.com/jmfederico/pi-web/tree/main/pi-packages/captains-log) |
 | A simpler initial-prompt workflow | [Workspace Reviews example](https://github.com/jmfederico/pi-web/tree/main/examples/session-bridge-plugin) |
 | Package discovery rules and diagnostics | [Plugin catalog](https://github.com/jmfederico/pi-web/blob/main/src/server/piWebPluginCatalog.ts) |
 

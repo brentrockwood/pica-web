@@ -1,6 +1,8 @@
 import type { StylesheetIntegrationCapabilityV1, ContentRendererInput } from "@jmfederico/pi-web/plugin-api";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import type { MermaidContent } from "./mermaidLocalization";
+import { readMermaidTheme, type MermaidTheme } from "./mermaidTheme";
 
 let enginePromise: Promise<string> | undefined;
 export function loadMermaidEngine(): Promise<string> {
@@ -23,6 +25,25 @@ export function mermaidFrameDocument(engine: string): string {
 }
 
 export class MermaidPreview extends LitElement {
+  private localizedContent: MermaidContent | undefined;
+  private releaseLocalization: (() => void) | undefined;
+
+  // Portable machine copies share the element class, not an activation's messages.
+  @property({ attribute: false })
+  get content(): MermaidContent | undefined { return this.localizedContent; }
+  set content(value: MermaidContent | undefined) {
+    if (value === this.localizedContent) return;
+    this.localizedContent = value;
+    this.observeLocalization();
+  }
+
+  private observeLocalization(): void {
+    this.releaseLocalization?.();
+    this.releaseLocalization = this.isConnected
+      ? this.localizedContent?.localization.subscribe(() => { this.requestUpdate(); })
+      : undefined;
+  }
+
   private integration: StylesheetIntegrationCapabilityV1 | undefined;
   private releaseStyles: (() => void) | undefined;
 
@@ -33,7 +54,15 @@ export class MermaidPreview extends LitElement {
     this.releaseStyles?.();
     this.releaseStyles = undefined;
     this.integration = value;
-    if (this.isConnected && this.renderRoot instanceof ShadowRoot) this.releaseStyles = value?.registerRoot(this.renderRoot);
+    this.connectStylesheetIntegration();
+    if (this.isConnected && this.hasUpdated) void this.draw();
+  }
+
+  private connectStylesheetIntegration(): void {
+    if (!this.isConnected || !(this.renderRoot instanceof ShadowRoot) || this.integration === undefined || this.releaseStyles !== undefined) return;
+    const releaseRoot = this.integration.registerRoot(this.renderRoot);
+    const unsubscribe = this.integration.subscribe(() => { void this.draw(); });
+    this.releaseStyles = () => { unsubscribe(); releaseRoot(); };
   }
 
   @property({ attribute: false }) input: ContentRendererInput | undefined;
@@ -50,11 +79,15 @@ export class MermaidPreview extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
-    if (this.renderRoot instanceof ShadowRoot) this.releaseStyles ??= this.integration?.registerRoot(this.renderRoot);
+    this.observeLocalization();
+    this.requestUpdate();
+    this.connectStylesheetIntegration();
     if (this.hasUpdated) void this.draw();
   }
 
   override disconnectedCallback(): void {
+    this.releaseLocalization?.();
+    this.releaseLocalization = undefined;
     this.releaseStyles?.();
     this.releaseStyles = undefined;
     super.disconnectedCallback();
@@ -70,13 +103,14 @@ export class MermaidPreview extends LitElement {
     const generation = ++this.generation;
     if (input === undefined || input.signal.aborted) return;
     const current = () => this.isConnected && !input.signal.aborted && generation === this.generation;
+    let theme: MermaidTheme | undefined;
     const onMessage = (event: MessageEvent<unknown>): void => {
       const frame = this.renderRoot.querySelector("iframe");
       if (!current() || event.source !== frame?.contentWindow) return;
       const data = event.data;
       if (typeof data !== "object" || data === null || !("type" in data)) return;
-      if (data.type === "mermaid-ready") {
-        frame.contentWindow?.postMessage({ type: "mermaid-render", text: input.text }, "*");
+      if (data.type === "mermaid-ready" && theme !== undefined) {
+        frame.contentWindow?.postMessage({ type: "mermaid-render", text: input.text, theme }, "*");
       } else if (data.type === "mermaid-error") {
         input.fail(new Error("Mermaid could not render this source"));
         window.clearTimeout(timeout);
@@ -107,7 +141,10 @@ export class MermaidPreview extends LitElement {
     input.signal.addEventListener("abort", onAbort, { once: true });
     try {
       const engine = await this.loadEngine();
-      if (current()) this.document = mermaidFrameDocument(engine);
+      if (current()) {
+        theme = readMermaidTheme(this);
+        this.document = mermaidFrameDocument(engine);
+      }
     } catch (error) {
       if (current()) input.fail(error);
       cleanup();
@@ -115,14 +152,16 @@ export class MermaidPreview extends LitElement {
   }
 
   override render() {
+    if (!this.isConnected || this.content === undefined) return null;
+    const messages = this.content.messages;
     return this.document === undefined
-      ? html`<p role="status">Rendering diagram…</p>`
-      : html`<iframe title="Mermaid diagram" sandbox="allow-scripts" referrerpolicy="no-referrer" .srcdoc=${this.document} style=${`height:${String(this.height)}px`}></iframe>`;
+      ? html`<p role="status">${messages.t("rendering")}</p>`
+      : html`<iframe title=${messages.t("frameTitle")} sandbox="allow-scripts" referrerpolicy="no-referrer" .srcdoc=${this.document} style=${`height:${String(this.height)}px`}></iframe>`;
   }
 
   static override styles = css`
     :host { display: block; }
-    iframe { display: block; width: 100%; border: 0; background: white; }
+    iframe { display: block; width: 100%; border: 0; background: var(--pi-bg); }
     p { color: var(--pi-muted); }
   `;
 }

@@ -9,6 +9,8 @@ import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PiWebPluginCatalog, PI_WEB_PLUGIN_ARTIFACT_MAX_BYTES, PI_WEB_PLUGIN_ARTIFACT_MAX_ENTRIES } from "../src/server/piWebPluginCatalog.js";
 import { PluginRegistry } from "../src/client/src/plugins/registry.js";
+import { LocalizationService } from "../src/client/src/localization/service.js";
+import { createPluginLocalization } from "../src/client/src/plugins/localization.js";
 
 // Delivery-only: run after npm run build. Never build or mutate checkout artifacts here.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -175,7 +177,7 @@ describe("plugin delivery artifacts", () => {
       browserRoot: expect.objectContaining({ path: "browser" }),
     })]);
     const browserModule = snapshot.plugins[0].browserModule.filePath;
-    expect(moduleSpecifiers(await readFile(browserModule, "utf8"))).toEqual(["./worktreeDialog.js"]);
+    expect(moduleSpecifiers(await readFile(browserModule, "utf8"))).toEqual(["./worktreeDialog.js", "./workflows.messages.js"]);
     expect((await import(pathToFileURL(browserModule).href)).default).toMatchObject({ name: "Workflows", apiVersion: 5 });
     const serverModule = join(source, metadata.piWeb.plugins[0].serverModule);
     expect(moduleSpecifiers(await readFile(serverModule, "utf8"))).toEqual([]);
@@ -286,6 +288,7 @@ describe("plugin delivery artifacts", () => {
           apiVersion: 4,
           pluginId: "files",
           runtimePluginId: "files",
+          localization: createPluginLocalization(new LocalizationService(), "files", "files", new AbortController().signal),
           html: template,
           svg: template,
           signal: new AbortController().signal,

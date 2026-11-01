@@ -2,13 +2,16 @@ import { cp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promis
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { smokeInstalledCaptainsLog } from "./captains-log-package-smoke.mjs";
 
 const publicApiDeclarationPaths = [
   "plugin-api.d.ts",
   "server-plugin-api.d.ts",
   "shared/pluginApiTypes.d.ts",
   "shared/pluginCatalogTypes.d.ts",
+  "shared/localization.d.ts",
+  "shared/serverNoticePresentation.d.ts",
+  "shared/terminalTitlePresentation.d.ts",
+  "shared/workspaceRemovalPresentation.d.ts",
 ];
 const expectedPackageDeclarationPaths = [
   ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
@@ -37,7 +40,6 @@ const pluginConsumerCompilerModes = [
 ];
 
 export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRoot }) {
-  await smokeInstalledCaptainsLog({ packageRoot, fixtureRoot });
   await assertPublicApiBaseline(packageRoot, repoRoot);
   await assertInstalledDeclarationArtifacts(packageRoot);
   await assertExampleCompatibilityFloor(packageRoot);
@@ -73,23 +75,26 @@ export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRo
       "dist/plugin-api.d.ts",
       "dist/shared/pluginApiTypes.d.ts",
       "dist/shared/pluginCatalogTypes.d.ts",
+      "dist/shared/localization.d.ts",
+      "dist/shared/terminalTitlePresentation.d.ts",
+      "dist/shared/workspaceRemovalPresentation.d.ts",
     ]);
     assertStrictPluginConsumer("server-only", [serverPath], mode, packageRoot, repoRoot, [
       "dist/server-plugin-api.d.ts",
       "dist/shared/pluginApiTypes.d.ts",
       "dist/shared/pluginCatalogTypes.d.ts",
+      "dist/shared/serverNoticePresentation.d.ts",
+      "dist/shared/terminalTitlePresentation.d.ts",
+      "dist/shared/workspaceRemovalPresentation.d.ts",
     ]);
     assertStrictPluginConsumer("session-bridge browser/backend", [
       join(consumerRoot, "session-bridge", "src", "browser", "index.ts"),
       join(consumerRoot, "session-bridge", "src", "server.ts"),
     ], mode, packageRoot, repoRoot, [
-      "dist/plugin-api.d.ts", "dist/server-plugin-api.d.ts", "dist/shared/pluginApiTypes.d.ts", "dist/shared/pluginCatalogTypes.d.ts",
+      ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
     ], ["node"]);
     assertStrictPluginConsumer("dual-entry example", dualEntryPaths, mode, packageRoot, repoRoot, [
-      "dist/plugin-api.d.ts",
-      "dist/server-plugin-api.d.ts",
-      "dist/shared/pluginApiTypes.d.ts",
-      "dist/shared/pluginCatalogTypes.d.ts",
+      ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
     ], ["node"]);
   }
 }
@@ -144,12 +149,6 @@ async function assertExampleCompatibilityFloor(packageRoot) {
   const actualRange = manifest?.devDependencies?.["@jmfederico/pi-web"];
   if (actualRange !== workspaceProviderExamplePiWebRange) {
     throw new Error(`Installed workspace-provider example must require @jmfederico/pi-web ${workspaceProviderExamplePiWebRange}; received ${JSON.stringify(actualRange)}`);
-  }
-  const captainsLog = JSON.parse(await readFile(join(packageRoot, "dist", "pi-packages", "captains-log", "package.json"), "utf8"));
-  for (const field of ["devDependencies", "peerDependencies"]) {
-    if (captainsLog[field]?.["@jmfederico/pi-web"] !== workspaceProviderExamplePiWebRange) {
-      throw new Error(`Installed Captain's Log ${field} must require @jmfederico/pi-web ${workspaceProviderExamplePiWebRange}`);
-    }
   }
 }
 

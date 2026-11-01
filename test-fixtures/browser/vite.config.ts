@@ -13,6 +13,8 @@ export default defineConfig({
       input: {
         overlays: fileURLToPath(new URL("overlays.html", import.meta.url)),
         terminal: fileURLToPath(new URL("terminal.html", import.meta.url)),
+        localization: fileURLToPath(new URL("localization.html", import.meta.url)),
+        recovery: fileURLToPath(new URL("recovery.html", import.meta.url)),
       },
     },
   },

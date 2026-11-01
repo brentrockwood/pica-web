@@ -1,3 +1,7 @@
+import type { PendingPrompt } from "../pendingPrompts";
+import { LocalizationController, localization } from "../localization/browser";
+import { chatTranscriptMessages } from "../chatTranscriptMessages";
+import { chatChromeMessages as chrome } from "../chatChromeMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -37,8 +41,6 @@ import type { MarkdownWorkspaceContext } from "../formatting/workspaceLinks";
 import "./ToolExecutionView";
 import { transcriptImageSource } from "./TranscriptImage";
 import type { ImageOpenDetail } from "./ImagePresentation";
-
-const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
 export type ChatImagePart = Extract<ChatPart, { type: "image" }>;
 
@@ -84,13 +86,13 @@ export function chatMessageMetadataLabel(message: ChatLine): string {
   const time = timestamp === undefined ? undefined : formatMessageTimestamp(timestamp);
   const model = chatMessageModelLabel(message);
   const parts = [time, model, message.meta?.thinkingLevel].filter((part): part is string => part !== undefined && part !== "");
-  return parts.length === 0 ? "No Pi message metadata available" : parts.join(" · ");
+  return parts.length === 0 ? chatTranscriptMessages.t("noMetadata") : localization.list(parts);
 }
 
 function formatMessageTimestamp(timestamp: string): string | undefined {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return undefined;
-  return messageTimestampFormatter.format(date);
+  return localization.date(date, { dateStyle: "medium", timeStyle: "medium" });
 }
 
 function chatMessageModelLabel(message: ChatLine): string | undefined {
@@ -106,6 +108,11 @@ export class ChatView extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this, localization, () => {
+      this.messageMetaCache = new WeakMap();
+      this.messageActionController.localizationChanged();
+      this.navigationLocalizationChanged = true;
+    });
   }
 
   @property({ attribute: false }) messages: ChatLine[] = [];
@@ -137,6 +144,7 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) isSendingPrompt = false;
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Number }) pendingMessageCount = 0;
+  @property({ attribute: false }) pendingPrompts: PendingPrompt[] = [];
   @property({ attribute: false }) clientQueuedMessages: QueuedSessionMessage[] = [];
   @property({ attribute: false }) status?: SessionStatus;
   @property({ attribute: false }) activity?: SessionActivity;
@@ -151,7 +159,7 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) onClearServerQueue?: () => void;
   @property({ attribute: false }) onQueuedMessageAction?: (target: QueuedMessageActionTarget) => Promise<void>;
   @property({ type: Boolean }) queuedMessageActionPending = false;
-  @state() private queuedCopyFeedback = "";
+  @state() private queuedCopyFailed = false;
   @property({ attribute: false }) onDismissWarning?: (dismissId: string) => void;
   @property({ attribute: false }) onDismissNotification?: (notificationId: string) => void;
   @property({ attribute: false }) onDismissAllNotifications?: () => void;
@@ -193,7 +201,8 @@ export class ChatView extends LitElement {
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
-  private readonly messageMetaCache = new WeakMap<ChatLine, string>();
+  private messageMetaCache = new WeakMap<ChatLine, string>();
+  private navigationLocalizationChanged = false;
   private imageSession: SessionRef | undefined;
   private touchY: number | undefined;
   private loadMoreRequested = false;
@@ -226,14 +235,14 @@ export class ChatView extends LitElement {
   private readonly handleTouchEnd = () => { this.touchY = undefined; };
   private readonly handleJumpTop = () => { this.scrollFlows.jumpToTop(); };
   private readonly handleJumpEnd = () => { this.scrollFlows.jumpToEnd(); };
-  private readonly openImageZoom = (src: string, alt: string): void => {
-    if (this.behaviors.loadImages) this.imageGalleryDialog?.show([{ src, alt }]);
+  private readonly openImageZoom = (image: ImageOpenDetail): void => {
+    if (this.behaviors.loadImages) this.imageGalleryDialog?.show([image]);
   };
-  private openToolImageGallery(images: readonly { part: ChatImagePart; description: string }[], selectedIndex: number): void {
+  private openToolImageGallery(images: readonly { part: ChatImagePart; description: () => string }[], selectedIndex: number): void {
     if (!this.behaviors.loadImages) return;
     const entries = images.flatMap((image, index) => {
       const source = transcriptImageSource(image.part, this.transcriptSession(), this.machineId);
-      return source === undefined ? [] : [{ src: source.src, alt: image.description, partIndex: index }];
+      return source === undefined ? [] : [{ src: source.src, get alt() { return image.description(); }, partIndex: index }];
     });
     const index = entries.findIndex((entry) => entry.partIndex === selectedIndex);
     if (index >= 0) this.imageGalleryDialog?.show(entries, index);
@@ -278,7 +287,7 @@ export class ChatView extends LitElement {
     if (changed.has("sessionId") || changed.has("machineId")) {
       this.transientDisclosures.clear();
       this.lastOpenQuestionId = undefined;
-      this.queuedCopyFeedback = "";
+      this.queuedCopyFailed = false;
     }
     if (changed.has("sessionId") || changed.has("machineId")) {
       this.messageActionController.reset();
@@ -314,7 +323,8 @@ export class ChatView extends LitElement {
         : openQuestionId !== undefined && openQuestionId !== this.lastOpenQuestionId ? "ask" : false,
     });
     this.lastOpenQuestionId = openQuestionId;
-    if (changed.has("followingLive") || changed.has("behaviors") || changed.has("onNavigationChange")) {
+    if (this.navigationLocalizationChanged || changed.has("followingLive") || changed.has("behaviors") || changed.has("onNavigationChange")) {
+      this.navigationLocalizationChanged = false;
       this.onNavigationChange?.(this.renderNavigation());
     }
   }
@@ -343,7 +353,7 @@ export class ChatView extends LitElement {
     return html`
       ${this.renderTopNotices()}
       <div class=${this.behaviors.visualEffects ? "chat-wrap" : "chat-wrap plain"}>
-        <div class="chat" @image-open=${(event: CustomEvent<ImageOpenDetail>) => { this.openImageZoom(event.detail.src, event.detail.alt); }}
+        <div class="chat" @image-open=${(event: CustomEvent<ImageOpenDetail>) => { this.openImageZoom(event.detail); }}
           @scroll=${this.behaviors.rememberPosition || this.behaviors.followTail || this.behaviors.automaticHistory ? this.handleScroll : undefined}
           @toggle=${this.behaviors.followTail ? this.handleDisclosureToggle : undefined}
           @content-layout-changed=${this.onContentLayoutChanged}
@@ -374,12 +384,13 @@ export class ChatView extends LitElement {
 
   private renderNavigation() {
     const following = this.behaviors.followTail && this.followingLive;
-    return html`<nav class="chat-jumps" aria-label="Chat navigation">
-      <button type="button" title="Jump to top" aria-label="Jump to top" @click=${this.handleJumpTop}>↑</button>
+    const state = !this.behaviors.followTail ? "disabled" : following ? "following" : "paused";
+    return html`<nav class="chat-jumps" aria-label=${chrome.t("navigation")}>
+      <button type="button" title=${chrome.t("jumpTop")} aria-label=${chrome.t("jumpTop")} @click=${this.handleJumpTop}>↑</button>
       <button type="button" class=${following ? "following" : ""}
-        title=${!this.behaviors.followTail ? "Jump to end" : following ? "Following live — jump to end" : "Jump to end and follow live"}
-        aria-label="Jump to end" aria-describedby="chat-follow-state" @click=${this.handleJumpEnd}>↓</button>
-      <span id="chat-follow-state" class="chat-follow-state">${!this.behaviors.followTail ? "Automatic following disabled" : following ? "Following live" : "Live following paused"}</span>
+        title=${chrome.t("endTitle", { state })}
+        aria-label=${chrome.t("jumpEnd")} aria-describedby="chat-follow-state" @click=${this.handleJumpEnd}>↓</button>
+      <span id="chat-follow-state" class="chat-follow-state">${chrome.t("followState", { state })}</span>
     </nav>`;
   }
 
@@ -426,8 +437,14 @@ export class ChatView extends LitElement {
 
   private renderQueuedMessages() {
     const serverQueued = this.status?.queuedMessages ?? [];
-    return html`${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued).map((section) => this.renderQueuedMessageList(section))}
-      ${this.queuedCopyFeedback === "" ? nothing : html`<small role="status">${this.queuedCopyFeedback}</small>`}`;
+    return html`${this.pendingPrompts.map((prompt) => this.renderQueuedMessageList({
+      source: "pending", heading: chrome.t(prompt.error === undefined ? "promptPending" : "promptFailed"),
+      detail: prompt.error ?? chrome.t("promptPendingDetail"), messages: [prompt.preview],
+    }))}${chatQueuedMessageSections(this.clientQueuedMessages, serverQueued, (source, count) => ({
+      heading: chrome.t(source === "client" ? "clientHeading" : "serverHeading"),
+      detail: source === "client" ? chrome.t("clientDetail") : chrome.t("pending", { count }),
+    })).map((section) => this.renderQueuedMessageList(section))}
+      ${this.queuedCopyFailed ? html`<small role="status">${chrome.t("copyFailed")}</small>` : nothing}`;
   }
 
   private renderQueuedMessageList(section: QueuedMessageSection) {
@@ -449,7 +466,7 @@ export class ChatView extends LitElement {
     const identity = machineSessionKey(this.machineId, this.sessionId);
     const copied = await writeClipboardText(text);
     if (this.isConnected && identity === machineSessionKey(this.machineId, this.sessionId)) {
-      this.queuedCopyFeedback = copied ? "" : "Could not copy message";
+      this.queuedCopyFailed = !copied;
     }
   }
 
@@ -482,7 +499,7 @@ export class ChatView extends LitElement {
           .onCancel=${this.onCancelDialog}
         ></extension-dialog-card>
         ${queuedCount > 0
-          ? html`<p class="queued-dialogs" role="status">${String(queuedCount)} more extension ${queuedCount === 1 ? "dialog" : "dialogs"} queued</p>`
+          ? html`<p class="queued-dialogs" role="status">${chrome.t("queuedDialogs", { count: queuedCount })}</p>`
           : null}
       `}
     `;
@@ -492,24 +509,24 @@ export class ChatView extends LitElement {
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting ui-transcript-surface" aria-live="polite">
-        <strong>Compacting history…</strong>
-        <span>The agent is summarizing earlier context. New prompts will be queued until compaction finishes.</span>
-        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} queued ${this.pendingMessageCount === 1 ? "message" : "messages"}</small>` : null}
+        <strong>${chrome.t("compacting")}</strong>
+        <span>${chrome.t("compactionDetail")}</span>
+        ${this.pendingMessageCount > 0 ? html`<small>${chrome.t("queuedCount", { count: this.pendingMessageCount })}</small>` : null}
       </aside>
     `;
   }
 
   private renderHistoryBoundary() {
     const range = this.historyRangeLabel();
-    if (this.loadingMore) return html`<div class="history-boundary"><span>Loading earlier messages…</span>${range}</div>`;
+    if (this.loadingMore) return html`<div class="history-boundary"><span>${chrome.t("loadingHistory")}</span>${range}</div>`;
     if (this.hasMore) return html`
       <div class="history-boundary">
-        <button type="button" class="history-load-button ui-button ui-button--compact" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>Load earlier messages</button>
-        ${this.behaviors.automaticHistory ? html`<span>Scroll up to load earlier messages</span>` : null}
+        <button type="button" class="history-load-button ui-button ui-button--compact" ?disabled=${this.loadMoreRequested} @click=${() => { this.requestLoadMore(); }}>${chrome.t("loadHistory")}</button>
+        ${this.behaviors.automaticHistory ? html`<span>${chrome.t("scrollHistory")}</span>` : null}
         ${range}
       </div>
     `;
-    if (this.messages.length) return html`<div class="history-boundary"><span>Beginning of session</span>${range}</div>`;
+    if (this.messages.length) return html`<div class="history-boundary"><span>${chrome.t("beginning")}</span>${range}</div>`;
     return null;
   }
 
@@ -518,7 +535,7 @@ export class ChatView extends LitElement {
     const from = this.messageStart + 1;
     const to = this.loadedRawMessageEnd();
     const total = Math.max(this.messageTotal, to);
-    return html`<small>Showing messages ${from}–${to} of ${total}</small>`;
+    return html`<small>${chrome.t("range", { from, to, total })}</small>`;
   }
 
   private loadedRawMessageEnd(): number {
@@ -611,7 +628,7 @@ export class ChatView extends LitElement {
   }
 
   private scrollContentChanged(changed: Map<string, unknown>): boolean {
-    return changed.has("messages") || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs");
+    return changed.has("messages") || changed.has("pendingPrompts") || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs");
   }
 
   private requestLoadMore(): void {

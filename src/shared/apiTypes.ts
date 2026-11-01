@@ -1,6 +1,13 @@
+import type { ServerNoticePresentation } from "./serverNoticePresentation.js";
+import type { CommandResultPresentation } from "./commandResultPresentation.js";
+import type { CommandOutputPresentation } from "./commandOutputPresentation.js";
+import type { SessionNotificationPresentation } from "./sessionNotificationPresentation.js";
+import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.js";
 import type { MachineStatusUiEvent } from "./machineStatus.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
 import type { ThinkingLevel } from "./thinkingLevels.js";
+import type { PiWebDefaultLocalization } from "./defaultLocalization.js";
+export type { PiWebDefaultLocalization, LocalizationHourCycle } from "./defaultLocalization.js";
 import type {
   DeleteWorkspaceFileResponse,
   FileContentMediaType,
@@ -175,6 +182,8 @@ export interface PiWebConfigValues {
   installationName?: string;
   /** App-wide theme default; browser-local theme preferences take precedence. */
   defaultTheme?: PiWebThemePreference;
+  /** Gateway-wide localization defaults; browser-local preferences take precedence. */
+  defaultLocalization?: PiWebDefaultLocalization;
   /** Gateway-wide send behavior while streaming; defaults to steer. */
   defaultStreamingBehavior?: "steer" | "followUp";
   /**
@@ -479,6 +488,8 @@ export type ServerNoticeScope =
 
 /** One independent server-created event retained until dismissal, eligible plugin eviction, or daemon end. */
 export interface ServerNotice {
+  /** Optional generated presentation; message remains the English/raw fallback. */
+  presentation?: ServerNoticePresentation;
   id: string;
   severity: ServerNoticeSeverity;
   message: string;
@@ -558,6 +569,8 @@ export type SessionNotificationSeverity = "info" | "warning" | "error";
 export interface SessionNotification {
   id: string;
   message: string;
+  /** Optional PI WEB-owned wording; absent for extension-authored notifications. */
+  presentation?: SessionNotificationPresentation;
   truncated: boolean;
   severity: SessionNotificationSeverity;
   receivedAt: string;
@@ -729,6 +742,8 @@ export interface SessionCleanupExecuteResponse extends SessionCleanupPreviewResp
 }
 
 export interface SessionActivity {
+  /** Optional runtime-owned presentation; label/detail stay compatible raw fallbacks. */
+  runtimePresentation?: RuntimeActivityPresentation;
   sessionId: string;
   phase: "active" | "idle" | "error";
   label: string;
@@ -742,6 +757,14 @@ export interface SessionActivity {
    * work to report. `isSessionActive()` reads this to keep the two apart.
    */
   startup?: boolean;
+  /** Optional structured browser presentation; raw label/detail remain the wire fallback.
+   * Independent of `startup`: pending browser rows retain this when re-attributing progress.
+   */
+  startupPresentation?: {
+    intent: "create" | "open";
+    stage: "runtime" | "extensions";
+    catalogRefreshing: boolean;
+  };
 }
 
 export interface SessionQueueMessageMutation {
@@ -1187,6 +1210,8 @@ export type SessionWarningSeverity = "info" | "warning" | "error";
 export interface SessionWarning {
   severity: SessionWarningSeverity;
   message: string;
+  /** Cosmetic provenance for PI WEB-owned notices; message remains the English fallback. */
+  presentation?: { kind: "anthropicSubscriptionAuth" };
   source?: string;
   path?: string;
   dismiss?: { id: string };
@@ -1305,11 +1330,28 @@ export type SessionTreeNodeKind =
   | "custom"
   | "other";
 
+/** Safe display provenance; text values are never translation keys. */
+export type SessionTreeSummaryPart = { type: "text"; text: string } | { type: "image" };
+export type SessionTreeSummaryStatus =
+  | "message" | "user-message" | "assistant-response" | "assistant-error" | "assistant-aborted"
+  | "hidden-custom-message" | "compaction-summary" | "branch-summary";
+export type SessionTreeSummaryField = "shell" | "model" | "thinking-level" | "session-name" | "label" | "custom-entry" | "entry";
+export type SessionTreeSummaryPresentation =
+  | { type: "status"; status: SessionTreeSummaryStatus }
+  | { type: "content"; parts: SessionTreeSummaryPart[]; fallback: SessionTreeSummaryStatus }
+  | { type: "named"; field: SessionTreeSummaryField; value?: string }
+  | { type: "assistant-tools"; names: string[] }
+  | { type: "tool-result"; isError: boolean; toolName?: string; parts: SessionTreeSummaryPart[] }
+  | { type: "custom-message"; customType?: string; parts: SessionTreeSummaryPart[] };
+
 export interface SessionTreeNode {
   id: string;
   parentId: string | null;
   kind: SessionTreeNodeKind;
+  /** English compatibility preview for older clients. */
   summary: string;
+  /** Absent on older servers; clients must retain summary as a raw fallback. */
+  summaryPresentation?: SessionTreeSummaryPresentation;
   timestamp?: string;
   label?: string;
 }
@@ -1394,10 +1436,10 @@ export interface SessionTranscriptSnapshot extends SessionStreamSnapshot {
 }
 
 export type CommandResult =
-  | { type: "done"; message?: string; session?: SessionInfo; promptDraft?: string }
-  | { type: "select"; requestId: string; title: string; options: CommandOption[] }
+  | { type: "done"; message?: string; presentation?: CommandResultPresentation; session?: SessionInfo; promptDraft?: string }
+  | { type: "select"; requestId: string; title: string; presentation?: CommandResultPresentation; options: CommandOption[] }
   | { type: "tree"; tree: SessionTreeSnapshot }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string; presentation?: CommandResultPresentation };
 
 /**
  * Transport-level per-session sequence stamp. `SessionEventHub.publish` assigns a
@@ -1423,7 +1465,7 @@ type SessionUiEventBody =
   | { type: "message.end"; message?: unknown }
   | { type: "status.update"; status: SessionStatus }
   | { type: "activity.update"; activity: SessionActivity }
-  | { type: "command.output"; level: "info" | "success" | "error"; message: string }
+  | { type: "command.output"; level: "info" | "success" | "error"; message: string; presentation?: CommandOutputPresentation }
   | SessionNotificationInboxEvent
   | { type: "session.error"; message: string }
   /** Technical details for the browser console, never transcript or notification content. */

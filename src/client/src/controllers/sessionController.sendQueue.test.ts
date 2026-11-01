@@ -1,9 +1,65 @@
 import { describe, expect, it } from "vitest";
 import { initialAppState } from "../appState";
 import { SessionController } from "./sessionController";
-import { emptyTranscriptApi as defaultApi, deferred, emptyPage, FakeSocket, oldSession, replacementSession, sessionLookupId, status, workspace, type AppState, type Deferred, type PromptAttachment, type SessionInfo } from "./sessionController.testSupport";
+import { emptyTranscriptApi as defaultApi, deferred, emptyPage, FakeSocket, EmitSocket, oldSession, replacementSession, sessionLookupId, status, workspace, type AppState, type Deferred, type PromptAttachment, type SessionInfo } from "./sessionController.testSupport";
 
 describe("SessionController send queue", () => {
+  it("shows a plain prompt immediately, survives a stale refresh, and reconciles a live receipt", async () => {
+    const request = deferred<{ accepted: true }>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const socket = new EmitSocket();
+    const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined,
+      { api: { ...defaultApi, prompt: () => request.promise }, socket });
+    await controller.selectSession(oldSession, { updateUrl: false });
+    const send = controller.send("hello");
+    expect(state.pendingPrompts["local:old-session"]).toMatchObject([{ text: "hello", accepted: false }]);
+    expect(state.messages).toEqual([]);
+    request.resolve({ accepted: true });
+    expect(await send).toBe(true);
+    expect(state.pendingPrompts["local:old-session"]).toMatchObject([{ accepted: true }]);
+    await controller.selectSession(oldSession, { updateUrl: false });
+    expect(state.pendingPrompts["local:old-session"]).toHaveLength(1);
+    socket.emit({ type: "message.append", message: { role: "user", content: "hello", timestamp: 1 } });
+    expect(state.pendingPrompts["local:old-session"]).toEqual([]);
+    expect(state.messages).toHaveLength(1);
+  });
+
+  it("keeps a failed prompt with its originating machine/session after switching away", async () => {
+    const request = deferred<{ accepted: true }>();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined,
+      { api: { ...defaultApi, prompt: () => request.promise }, socket: new FakeSocket() });
+    const send = controller.send("recover me");
+    controller.deselectSession();
+    request.reject(new Error("offline"));
+    expect(await send).toBe(false);
+    expect(state.pendingPrompts["local:old-session"]).toMatchObject([{ text: "recover me", error: "Error: offline" }]);
+    expect(state.messages).toEqual([]);
+    expect(state.sendingPrompts).toEqual({});
+    await controller.selectSession(oldSession, { updateUrl: false });
+    expect(state.pendingPrompts["local:old-session"]).toMatchObject([{ error: "Error: offline" }]);
+  });
+
+  it("does not let a failed identical send consume the next send's transcript receipt", async () => {
+    const first = deferred<{ accepted: true }>();
+    const second = deferred<{ accepted: true }>();
+    let calls = 0;
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const socket = new EmitSocket();
+    const controller = new SessionController(() => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined,
+      { api: { ...defaultApi, prompt: () => ++calls === 1 ? first.promise : second.promise }, socket });
+    await controller.selectSession(oldSession, { updateUrl: false });
+    const send1 = controller.send("hello");
+    const send2 = controller.send("hello");
+    first.reject(new Error("offline"));
+    await send1;
+    second.resolve({ accepted: true });
+    await send2;
+    socket.emit({ type: "message.append", message: { role: "user", content: "hello", timestamp: 1 } });
+    expect(state.pendingPrompts["local:old-session"]).toMatchObject([{ error: "Error: offline" }]);
+    expect(state.messages).toHaveLength(1);
+  });
+
   it("toggles the per-session sending state around an inline attachment send and forwards attachments", async () => {
     let resolvePrompt: (() => void) | undefined;
     let promptArgs: { attachments?: PromptAttachment[] } | undefined;
@@ -88,6 +144,7 @@ describe("SessionController send queue", () => {
     // configured-default fallback applies.
     expect(savedFolder).toBeUndefined();
     expect(promptText).toBe("check this\n\n@.pi-web/attachments/shot.png");
+    expect(state.pendingPrompts["local:old-session"]).toMatchObject([{ text: promptText, imageCount: 0, preview: { attachmentCount: 1 } }]);
     expect(promptAttachments).toBeUndefined();
     expect(state.sendingPrompts).toEqual({});
   });
@@ -119,7 +176,7 @@ describe("SessionController send queue", () => {
     expect(promptText).toBe("check this\n\n@project-attachments/shot.png");
   });
 
-  it("does not set the sending state for plain text messages", async () => {
+  it("sets the sending state for plain text messages", async () => {
     let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
     const seen: Record<string, true>[] = [];
     const api: typeof defaultApi = {
@@ -135,7 +192,7 @@ describe("SessionController send queue", () => {
     );
 
     await controller.send("hello");
-    expect(seen).toEqual([{}]);
+    expect(seen).toEqual([{ [oldSession.id]: true }]);
     expect(state.sendingPrompts).toEqual({});
   });
 
@@ -163,6 +220,7 @@ describe("SessionController send queue", () => {
     // No raw command text is added to the transcript; the agent streams the
     // canonical expanded message back instead.
     expect(state.messages).toEqual([]);
+    expect(state.pendingPrompts).toEqual({});
     resolveCommand?.();
     await run;
     expect(state.messages).toEqual([]);
