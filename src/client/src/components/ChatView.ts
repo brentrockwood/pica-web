@@ -209,7 +209,7 @@ export class ChatView extends LitElement {
   private readonly onContentLayoutChanging = (event: CustomEvent<HTMLElement>) => {
     this.scrollFlows.onContentLayoutChanging(event.detail);
   };
-  private readonly onContentLayoutChanged = () => { this.scrollFlows.onViewportResize(); };
+  private readonly onContentLayoutChanged = () => { this.scrollFlows.onContentLayoutRendered(); };
   private readonly handleScroll = () => { this.scrollFlows.onScroll(); };
   // Native details toggles do not bubble; capture layout changes independently
   // of the listener that remembers a group's disclosure choice.

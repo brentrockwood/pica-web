@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { tabKey } from "./keyboard";
 import type { PromptEditor } from "../../src/client/src/components/PromptEditor";
 
 type ComposerState = Partial<Pick<PromptEditor, "canSteer" | "defaultStreamingBehavior" | "sending" | "shortcuts">>;
@@ -51,7 +52,7 @@ test("purpose hooks preserve compact geometry and independently operable setting
   await thinking.click();
   await expect(page.locator("body")).toHaveAttribute("data-last-picker", "thinking");
   await send.focus();
-  await send.press("Tab");
+  await send.press(tabKey(page));
   await expect(stop).toBeFocused();
   await stop.press("Enter");
   await expect(page.locator("body")).toHaveAttribute("data-last-stop", "stopped");

@@ -53,6 +53,8 @@ for (const scheme of ["dark", "light"] as const) {
     expect(replyCue.clip).not.toBe(requestCue.clip);
     expect(requestCue.pointerEvents).toBe("none");
     for (const bubble of [request, reply]) {
+      // Each message formats independently; parent rendering does not await its paragraphs.
+      await expect(bubble.locator("formatted-text p").first()).toBeVisible();
       const geometry = await bubble.evaluate(messageGeometry);
       expect(geometry.markerLeft).toBeGreaterThanOrEqual(geometry.contentLeft);
       expect(geometry.markerRight).toBeLessThanOrEqual(geometry.firstLineLeft);

@@ -108,7 +108,8 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
   await typeComposerText(input, "/");
   await expect(page.locator("autocomplete-menu button")).toBeVisible();
   const opener = page.getByRole("button", { name: "Open dialog", exact: true });
-  await opener.click();
+  // Keyboard activation establishes the focus that closing must restore on every platform.
+  await opener.press("Enter");
   const dialog = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 1", exact: true, includeHidden: true }) });
   await expect(page.getByRole("dialog", { name: "Dialog 1", exact: true })).toHaveCount(1);
   await expect(dialog.locator("dialog")).toBeVisible();
@@ -123,7 +124,7 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
   await page.keyboard.press("Escape");
   await expect(menu).not.toBeVisible();
   await expect(dialog.locator("dialog")).toBeVisible();
-  await dialog.getByRole("button", { name: "Open nested dialog" }).click();
+  await dialog.getByRole("button", { name: "Open nested dialog" }).press("Enter");
   const nested = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 2", exact: true }) });
   await expect(nested.getByRole("textbox", { name: "Dialog input" })).toBeFocused();
   await expect(nested.locator("dialog")).toHaveAttribute("aria-modal", "true");

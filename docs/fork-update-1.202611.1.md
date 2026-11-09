@@ -17,7 +17,8 @@ The staging worktree is `~/src/worktrees/pica-web/update-1.202611.1`. It must re
 | Check | Result |
 | --- | --- |
 | `npm ci` | Passed; 10 moderate lint-tool dependency advisories accepted by the user; no audit-driven dependency changes |
-| `node scripts/test-fork-update.mjs` | Passed: 733 files / 9,289 tests; 1 file / 35 tests skipped by the suite |
+| Full ordinary suite before the browser-fix follow-up | Passed: 733 files / 9,289 tests; 1 file / 35 tests skipped by the suite |
+| Follow-up scroll/render, browser-wrapper, and documentation tests | Passed: 8 files / 164 tests; full ordinary suite not repeated for this bounded follow-up |
 | `npm run typecheck:cached` | Passed |
 | Whole-project ESLint plus affected-file rechecks | Passed after fixing a browser-test type assertion |
 | `npm run knip` | Passed |
@@ -25,14 +26,24 @@ The staging worktree is `~/src/worktrees/pica-web/update-1.202611.1`. It must re
 | `npm run check:artifacts` | Passed: 4 files / 15 tests |
 | `npm run smoke:package-install` | Passed after realpath normalization |
 | Table wrapping: Chromium, WebKit, touch | Passed: 3 browser tests, covering 320/560/900px widths |
-| Chromium + touch browser suite | 197 passed / 1 failed: touch Playground dark “Missing message anatomy” |
-| Earlier full browser run | Not passing: Firefox profile launch failure; WebKit focus/click/scroll failures; Playground failure. The fork table-fixture failure from that run was subsequently fixed |
+| `node scripts/test-fork-browser.mjs` after follow-up fixes | Passed: all 396 cases across Chromium, Firefox, WebKit, and touch |
+| Repeated regressions | Passed: 36 Playground runs and 30 WebKit code-scroll/message-frame runs |
 | Bun smoke | Not run; Bun smoke path comparisons were normalized but its runtime behavior remains unverified |
 | Live proxy, startup, migrations, and post-activation behavior | Not run; live deployment was intentionally untouched |
 
-Earlier unisolated full-suite attempts timed out. The completed isolated run supersedes those attempts for ordinary tests, not the separate browser failures. Browser failures remain unresolved; they must not be described as a passing browser gate. Windows/Linux CI has not been run for this integration.
+A follow-up baseline run against an isolated source archive of the live `f8c0f138` commit reproduced the Firefox profile-launch failure (19/19 Firefox cases) and both existing WebKit focus failures (language-settings Apply button and nested-dialog trigger restoration; 17 other WebKit cases passed). Those failures are not new upgrade regressions. Playground and the newer browser cases do not exist in that baseline, so this comparison does not establish their regression status. The deployed UI itself was not exercised by the baseline test.
 
-Temporary verification logs are under `/tmp/pica-update-*`; the successful installed-package smoke log is `/tmp/pi-web-update-1.202611.1-package-smoke.fahuvtn8.log`. These are local diagnostic files, not durable artifacts.
+Earlier unisolated full-suite attempts timed out. The completed isolated run supersedes those attempts for ordinary tests. Initial browser runs also failed; the final 396-case browser run passed after the fixes below. Windows/Linux CI and physical Safari/iPad testing have not been run for this integration.
+
+### Browser-failure follow-up
+
+- Firefox: macOS denied access to the real Firefox application-data directory. The new browser wrapper supplies a disposable `CFFIXED_USER_HOME`; it does not change OS settings or permissions on the real home. All 99 Firefox cases now run and pass.
+- Playground: the test measured the assistant paragraph before its independently deferred Markdown rendering finished. Wait for each measured paragraph, retaining geometry/hit-testing assertions.
+- WebKit focus: use native macOS Option+Tab for full keyboard navigation. Establish focus with keyboard activation before asserting its restoration; mouse clicks need not focus buttons on macOS. Assertions remain intact.
+- Message actions: click an unobscured interior point of the edge-aligned button, retaining native hit testing. Native overlay scrollbars can still overlap the button's outer edge; this does not change application layout.
+- Code scrolling: fix a real transient jump in the incoming upstream deferred-rendering path. Flush completed enhancement compensation before paint through the existing viewport transaction, preserving priority and user-navigation handling. Add a focused unit regression; existing browser scroll assertions are unchanged.
+
+Temporary verification logs are under `/tmp/pica-update-*`, `/tmp/pica-browser-final.log`, and `/tmp/pica-browser-fixes-*`; the successful installed-package smoke log is `/tmp/pi-web-update-1.202611.1-package-smoke.fahuvtn8.log`. These are local diagnostic files, not durable artifacts.
 
 ## Activation decisions still needed
 
@@ -43,4 +54,4 @@ Temporary verification logs are under `/tmp/pica-update-*`; the successful insta
 5. Take and verify a private, consistent backup in the maintenance window, including external transcript paths and launchd definitions. Account for the session-pin migration and any state changes before attempting rollback.
 6. Activate updated web/API and client before sessiond, then verify streaming, terminals, pins, themes, and access through the actual proxy.
 
-Do not promote this branch automatically on the strength of the ordinary tests: the browser gate and deployment-specific checks above are incomplete.
+The browser gate now passes. Promotion still requires the deployment-specific checks and explicit interruption approval above.

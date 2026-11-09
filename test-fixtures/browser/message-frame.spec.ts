@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
+import { tabKey } from "./keyboard";
 import type { ChatView } from "../../src/client/src/components/ChatView";
 
 async function box(locator: Locator) {
@@ -57,8 +58,11 @@ for (const visualEffects of [true, false]) {
       expect(await bottomOffset(trigger, reasoning)).toBeLessThanOrEqual(1);
       expect(Math.abs(triggerBox.x + triggerBox.width - messageBox.x - messageBox.width)).toBeLessThanOrEqual(1);
 
+      // Native overlay scrollbars can cover the edge button's center on macOS.
+      // Exercise an unobscured interior point without bypassing hit testing.
+      const position = { x: triggerBox.width / 4, y: triggerBox.height / 2 };
       if (testInfo.project.name === "touch") await trigger.tap();
-      else await trigger.click();
+      else await trigger.click({ position });
       await info.click();
       await expect(metadata).toBeVisible();
       await expect(metadata).toContainText("example/reasoning-model");
@@ -67,7 +71,7 @@ for (const visualEffects of [true, false]) {
       // Metadata follows the content; it does not move the menu or precede reasoning.
       const contentBox = await box(reasoning);
       expect((await box(metadata)).y).toBeGreaterThanOrEqual(contentBox.y + contentBox.height);
-      await trigger.click();
+      await trigger.click({ position });
       await info.click();
       await expect(metadata).toBeHidden();
     }
@@ -120,7 +124,7 @@ test("system-message sender links wrap without covering actions or body content"
     })).toBe(true);
     await link.focus();
     await expect(link).toBeFocused();
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(tabKey(page));
     await expect(trigger).toBeFocused();
     if (testInfo.project.name === "touch") await trigger.tap();
     else await trigger.click();

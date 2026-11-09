@@ -34,6 +34,8 @@ Use the isolated fixtures under `test-fixtures/browser/` for browser-dependent c
 
 Keep hit-target and focus assertions meaningful. Forced clicks, arbitrary sleeps, and larger timeouts are not fixes for incorrect composition or fixtures.
 
+On macOS WebKit, use `tabKey(page)` from `test-fixtures/browser/keyboard.ts` for sequential navigation through buttons and links: native Option+Tab includes these controls without changing OS preferences. Focus-restoration tests should activate their opener with the keyboard, since mouse clicks do not focus native buttons on every platform. For edge-aligned transcript actions, keep pointer clicks inside the button but clear of the native overlay scrollbar; retain ordinary hit testing.
+
 ### TemplateResult handler extraction
 
 Prefer pure logic or happy-dom. Direct handler extraction is acceptable only for narrow template event wiring when a mounted DOM test would require disproportionate setup. Explain that tradeoff in a short comment.

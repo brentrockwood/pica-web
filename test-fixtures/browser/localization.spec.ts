@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { tabKey } from "./keyboard";
 
 for (const languageTag of ["es", "sv"]) {
   test(`${languageTag} pack can be selected, persists across reload, and fits narrow settings`, async ({ page }) => {
@@ -46,7 +47,7 @@ test("language settings stay reachable by keyboard with long RTL text and a narr
   await zone.fill("UTC");
   await hours.selectOption("h23");
   await hours.focus();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press(tabKey(page));
   await expect(apply).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");

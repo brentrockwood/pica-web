@@ -144,6 +144,22 @@ describe("deferred content layout", () => {
     expect(f.flows.followingLive).toBe(false);
   });
 
+  it("compensates a completed deferred render before the next paint and cancels its queued resize", () => {
+    const f = fixture();
+    f.state.top = 600;
+    const block = source(f, 100, 800);
+    f.flows.onContentLayoutChanging(block.element);
+    block.geometry.height = 300;
+    f.state.height -= 500;
+    f.state.top = 200;
+    f.flows.onViewportResize();
+    f.flows.onContentLayoutRendered();
+    expect(f.state.top).toBe(100);
+    expect(f.flows.followingLive).toBe(false);
+    f.frames.flush();
+    expect(f.writeTop).toHaveBeenCalledOnce();
+  });
+
   it("coalesces repeated changes to a source and independent blocks above the reading point", () => {
     const f = fixture();
     f.state.top = 500;

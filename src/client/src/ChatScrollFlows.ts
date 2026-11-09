@@ -295,6 +295,15 @@ export class ChatScrollFlows {
     this.scheduleFollow();
   }
 
+  onContentLayoutRendered(): void {
+    // Deferred renderers finish between frames; compensate before a clamped position can paint.
+    if (this.layout !== undefined) {
+      this.cancelFrame();
+      this.flushViewport();
+    }
+    this.onViewportResize();
+  }
+
   onViewportResize(): void {
     if (this.disposed) return;
     if (this.restoration !== undefined) this.scheduleViewport();
@@ -374,7 +383,7 @@ export class ChatScrollFlows {
 
   private flushViewport(): void {
     if (this.disposed) return;
-    // One winner per frame. A remembered position outranks prepend compensation;
+    // One winner per transaction. A remembered position outranks prepend compensation;
     // both outrank tail/form alignment and deferred-layout compensation.
     // Measurement happens after child renders.
     const restoration = this.restoration;

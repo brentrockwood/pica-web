@@ -71,7 +71,7 @@ npm run knip
 node scripts/test-fork-update.mjs
 npm run build
 npm run check:artifacts
-npm run test:browser
+node scripts/test-fork-browser.mjs
 ```
 
 The explicit icon-generation step also works when npm lifecycle scripts are disabled. The fork test runner enables lifecycle scripts only for its subprocess, without changing global npm policy. It runs the ordinary Vitest suite with two workers and forwards extra Vitest arguments, so `node scripts/test-fork-update.mjs src/client/src/pendingPrompts.test.ts` is a focused run.
@@ -79,6 +79,8 @@ The explicit icon-generation step also works when npm lifecycle scripts are disa
 The runner gives tests temporary HOME, Pi agent/MCP configuration, PI WEB state/config/socket paths, and empty user/system Git configuration. It retains the nested-session marker and cleans up its temporary directory afterward. This avoids reading the live agent's MCP configuration and requiring signed fixture commits. It is configuration isolation, not a sandbox: PATH and unrelated environment variables remain inherited, and tests still execute with your permissions. Generate assets before invoking it; it deliberately bypasses npm's pretest hook.
 
 A full release integration spans many boundaries, so use all four verification stages above here; they cover the same checks as `npm run verify`, with isolated test configuration. During conflict resolution, use focused tests first. See [development checks](development-checks.md) for browser prerequisites, installed-package smoke triggers, and platform coverage. Run the package-install smoke check when the integration changes those installed boundaries; it requires registry access and is not a live service test.
+
+The browser runner forwards Playwright arguments (for example `--project=firefox`). On macOS it supplies a disposable `CFFIXED_USER_HOME` so Firefox can initialize without accessing the real user's protected Firefox data. It removes only that temporary home's macOS deny-delete ACLs during cleanup; no real-home permissions change. Other platforms use the normal browser environment. Browser binaries must already be installed; the wrapper does not download them.
 
 Report failures, skipped checks, and dependency audit warnings explicitly. Do not run `npm audit fix --force` as part of an upstream merge. Review security updates separately rather than silently changing the selected release's dependency graph.
 
