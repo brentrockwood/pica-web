@@ -1,6 +1,7 @@
 import {
   PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS,
   PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS,
+  PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS,
   PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
@@ -12,7 +13,7 @@ import { NAVIGATION_PREFERENCE_ROUTES } from "./navigationPreferences.js";
 export { PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS } from "./pluginBackendProtocol.js";
 export { WORKSPACE_REMOVAL_FEDERATION_TIMEOUT_MS } from "./workspaceRemovalProtocol.js";
 
-export type FederatedHttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+export type FederatedHttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export const PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS = 5 * 60_000;
 export const SESSION_TREE_NAVIGATION_PROXY_TIMEOUT_MS = 5 * 60_000;
@@ -46,6 +47,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/pi-web/status" },
   { method: "GET", path: "/config" },
   { method: "PUT", path: "/config" },
+  { method: "PATCH", path: "/config" },
   { method: "GET", path: "/plugins" },
   { method: "GET", path: "/pi-packages" },
   { method: "POST", path: "/pi-packages/install", timeoutMs: PI_PACKAGE_MUTATION_PROXY_TIMEOUT_MS },
@@ -57,11 +59,19 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "GET", path: "/plugin-catalog/projects/:projectId/workspaces/:workspaceId", propagateCancellation: true },
   { method: "GET", path: "/plugin-catalog/projects/:projectId/workspaces/:workspaceId/sessions", propagateCancellation: true },
   { method: "GET", path: "/plugin-catalog/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId", propagateCancellation: true },
+  { method: "GET", path: "/plugin-sessions/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId", propagateCancellation: true },
+  { method: "DELETE", path: "/plugin-sessions/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId", propagateCancellation: true },
+  ...["pin", "unpin", "archive", "restore"].map((action): FederatedHttpRouteSpec => ({
+    method: "POST", path: `/plugin-sessions/projects/:projectId/workspaces/:workspaceId/sessions/:sessionId/${action}`, propagateCancellation: true,
+  })),
   { method: "GET", path: "/projects" },
   { method: "POST", path: "/projects" },
   { method: "DELETE", path: "/projects/:projectId" },
   { method: "GET", path: "/project-directories" },
   { method: "GET", path: "/projects/:projectId/workspaces" },
+  ...PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS.map((path): FederatedHttpRouteSpec => ({
+    method: "GET", path, timeoutMs: 30_000, propagateCancellation: true,
+  })),
   ...PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS.map((path): FederatedHttpRouteSpec => ({
     method: "POST",
     path,
@@ -134,6 +144,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "POST", path: "/sessions/cleanup" },
   { method: "POST", path: "/sessions/bulk/archive" },
   { method: "POST", path: "/sessions/bulk/delete-archived" },
+  { method: "GET", path: "/sessions/:sessionId/location" },
   { method: "GET", path: "/sessions/:sessionId/messages" },
   { method: "GET", path: "/sessions/:sessionId/media/:mediaId", propagateCancellation: true },
   { method: "GET", path: "/sessions/:sessionId/notifications" },

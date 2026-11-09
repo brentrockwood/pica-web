@@ -4,7 +4,7 @@
 
 Experiments may remain specific to this fork or become contributions to upstream PI WEB. The fork may be permanent; upstream adoption is not a requirement for work here.
 
-To run this fork from source, see [Development](#development). Package names and commands still use `pi-web`. The badges, screenshots, published package, and website links below refer to upstream PI WEB.
+To run this fork from source, see [Development](#development). To integrate an upstream release, follow [Updating the fork](docs/fork-updates.md). Package names and commands still use `pi-web`. The badges, screenshots, published package, and website links below refer to upstream PI WEB.
 
 ## Upstream PI WEB
 

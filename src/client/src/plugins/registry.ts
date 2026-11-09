@@ -1,10 +1,16 @@
 import { html, svg } from "lit";
+import { filePreviewerMatches, snapshotFilePreviewer, type RegisteredFilePreviewer } from "./filePreviewers";
+import { createFilePreviewingCapability, filePreviewingCapabilityToken } from "./filePreviewing";
+import { snapshotFileIconTheme } from "./fileIcons";
+import type { QualifiedFileIconThemeContribution } from "./types";
+import { textFilePreviewer } from "./textFilePreviewer";
 import { snapshotDisplayMetadata } from "./displayMetadata";
 import { localization } from "../localization/browser";
 import type { LocalizationService } from "../localization/service";
 import { createPluginLocalization } from "./localization";
 import { createSyntaxHighlightingCapability, runSyntaxHighlighter, snapshotSyntaxHighlighter, syntaxHighlightingCapabilityToken, type RegisteredSyntaxHighlighter } from "../formatting/syntaxHighlighting";
 import { createPluginCatalog } from "./catalog";
+import { createPluginSessionLifecycle } from "./sessionLifecycle";
 import { stylesheetIntegrationCapability, stylesheetIntegrationCapabilityToken } from "./styles";
 import type { QualifiedStylesheetContribution, StylesheetContribution } from "./types";
 import { createPluginBackend } from "./pluginPeer";
@@ -13,8 +19,12 @@ import { availableDisplayedMessageActions, availableMessageActions, type Registe
 import { PluginSelectionHost } from "./selection";
 import { PromptChipStore, type PromptChipTarget } from "../promptChips";
 import type { PluginPromptEditor } from "../../../plugin-api";
+import { selectTranscriptRenderers, snapshotTranscriptRenderer, transcriptRenderingCapability, transcriptRenderingCapabilityToken, type RegisteredTranscriptRenderer } from "./transcriptRenderers";
 import { contentRendererMatches, snapshotContentRenderer, type ContentRendererChoice, type RegisteredContentRenderer } from "./contentRenderers";
 import { createContentRenderingCapability, createContentRenderingService, contentRenderingCapabilityToken, type ChatContentRendering } from "../formatting/contentRendering";
+import { MarkdownRenderingService, markdownRenderingCapabilityToken } from "../formatting/markdownRendering";
+import type { MarkdownEngine } from "../formatting/markdownEngine";
+import { snapshotMarkdownExtension, type RegisteredMarkdownExtension } from "./markdownExtensions";
 import { requirePluginBackendRevision } from "../../../shared/pluginBackendProtocol";
 import type { ApplicationPanelContext, ApplicationPanelContribution, QualifiedApplicationPanelContribution, PiWebPluginRegistration, PiWebPluginRegistrationDeclaration, PluginAction, PluginActivationContext, PluginActivationResult, PluginCapability, PluginCapabilityProvision, PluginContributions, PluginRuntimeContext, PluginStartContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, QualifiedSessionLabelContribution, SessionLabelContext, SessionLabelContribution, SessionLabelItem, ThemeContribution, ThemePairContribution, WorkspaceInvalidation, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution, WorkspacePluginBinding, WorkspaceResource } from "./types";
 
@@ -92,8 +102,11 @@ interface NormalizedPluginDeclaration {
 
 interface PreparedPluginContributions {
   readonly stylesheets: readonly QualifiedStylesheetContribution[];
+  readonly filePreviewers: readonly RegisteredFilePreviewer[];
   readonly contentRenderers: readonly RegisteredContentRenderer[];
+  readonly transcriptRenderers: readonly RegisteredTranscriptRenderer[];
   readonly syntaxHighlighters: readonly RegisteredSyntaxHighlighter[];
+  readonly markdownExtensions: readonly RegisteredMarkdownExtension[];
   readonly ids: ReadonlySet<QualifiedContributionId>;
   readonly actions: readonly RegisteredPluginAction[];
   readonly messageActions: readonly RegisteredMessageAction[];
@@ -102,6 +115,7 @@ interface PreparedPluginContributions {
   readonly workspaceLabels: readonly QualifiedWorkspaceLabelContribution[];
   readonly sessionLabels: readonly QualifiedSessionLabelContribution[];
   readonly themes: readonly QualifiedThemeContribution[];
+  readonly fileIconThemes: readonly QualifiedFileIconThemeContribution[];
   readonly themePairs: readonly QualifiedThemePairContribution[];
 }
 
@@ -158,7 +172,32 @@ export class PluginRegistry {
       && this.isContributionActive(pluginId, declaration.machineId, machineId, declaration.sourcePluginId);
   }
 
+  private readonly filePreviewers: RegisteredFilePreviewer[] = [];
+  readonly filePreviewing = createFilePreviewingCapability((request) => this.filePreviewers
+    .filter((previewer) => !previewer.lifetime.aborted && this.isContributionActive(previewer.pluginId, previewer.machineId, request.machineId, previewer.sourcePluginId))
+    .sort((a, b) => this.compareDiscoveryOrder(a, b))
+    .filter((previewer) => filePreviewerMatches(previewer, request)));
+  private readonly markdownExtensions: RegisteredMarkdownExtension[] = [];
+  private readonly markdownService = new MarkdownRenderingService(
+    (machineId) => this.markdownExtensions.filter((extension) => !extension.lifetime.aborted
+      && this.isContributionActive(extension.pluginId, extension.machineId, machineId, extension.sourcePluginId))
+      .sort((a, b) => this.compareDiscoveryOrder(a, b)),
+    (machineId) => this.getChatContentRendering(machineId),
+  );
+  readonly markdownRendering = this.markdownService.capability;
   private readonly contentRenderers: RegisteredContentRenderer[] = [];
+  private readonly transcriptRenderers: RegisteredTranscriptRenderer[] = [];
+  private readonly transcriptRendererViews = new Map<string, readonly RegisteredTranscriptRenderer[]>();
+
+  getTranscriptRenderers(machineId: string): readonly RegisteredTranscriptRenderer[] {
+    const selected = selectTranscriptRenderers(this.transcriptRenderers
+      .filter((renderer) => this.isContributionActive(renderer.pluginId, renderer.machineId, machineId, renderer.sourcePluginId))
+      .sort((a, b) => this.compareDiscoveryOrder(a, b)));
+    const previous = this.transcriptRendererViews.get(machineId);
+    if (previous?.length === selected.length && selected.every((renderer, index) => renderer === previous[index])) return previous;
+    this.transcriptRendererViews.set(machineId, selected);
+    return selected;
+  }
   private readonly syntaxHighlighters: RegisteredSyntaxHighlighter[] = [];
   readonly syntaxHighlighting = createSyntaxHighlightingCapability((request) => this.syntaxHighlightingRevision(request.machineId)
     .filter((highlighter) => contentRendererMatches(highlighter, { ...request, text: "" })).at(-1));
@@ -171,6 +210,7 @@ export class PluginRegistry {
   private readonly chatContentRenderingViews = new Map<string, {
     choices: readonly ContentRendererChoice[];
     grammars: readonly RegisteredSyntaxHighlighter[];
+    markdown: MarkdownEngine;
     rendering: ChatContentRendering;
   }>();
 
@@ -194,14 +234,16 @@ export class PluginRegistry {
   getChatContentRendering(machineId: string): ChatContentRendering {
     const choices = this.activeContentRendererChoices(machineId);
     const grammars = this.syntaxHighlightingRevision(machineId);
+    const markdown = this.markdownService.getEngine(machineId);
     const previous = this.chatContentRenderingViews.get(machineId);
-    if (previous?.grammars === grammars && previous.choices.length === choices.length
+    if (previous?.markdown === markdown && previous.grammars === grammars && previous.choices.length === choices.length
       && choices.every((choice, index) => choice.renderer === previous.choices[index]?.renderer)) return previous.rendering;
-    const rendering = createContentRenderingService(
+    const rendering: ChatContentRendering = { ...createContentRenderingService(
       (request) => request.machineId === machineId ? choices.filter(({ renderer }) => contentRendererMatches(renderer, request)) : [],
       () => grammars,
-    );
-    this.chatContentRenderingViews.set(machineId, { choices, grammars, rendering });
+      markdown,
+    ), machineId };
+    this.chatContentRenderingViews.set(machineId, { choices, grammars, markdown, rendering });
     return rendering;
   }
 
@@ -254,9 +296,14 @@ export class PluginRegistry {
   private readonly sessionLabels: QualifiedSessionLabelContribution[] = [];
   private readonly stylesheets: QualifiedStylesheetContribution[] = [];
   private readonly themes: QualifiedThemeContribution[] = [];
+  private declarativeThemes: readonly QualifiedThemeContribution[] = [];
+  private declarativeThemePairs: readonly QualifiedThemePairContribution[] = [];
+  private readonly fileIconThemes: QualifiedFileIconThemeContribution[] = [];
   private readonly themePairs: QualifiedThemePairContribution[] = [];
   private readonly pluginIds = new Set<string>();
   private readonly warnedLegacyPluginIds = new Set<string>();
+
+  private readonly warnedRuntimeThemeContributions = new Set<string>();
   private readonly gatewayPluginIds = new Set<string>();
   private readonly gatewayMachineSpecificPluginIds = new Set<string>();
   private readonly remoteMachineSpecificPluginIds = new Map<string, Set<string>>();
@@ -279,7 +326,10 @@ export class PluginRegistry {
     this.selection = new PluginSelectionHost(options.getSelection ?? (() => ({})));
     this.lifecycleTimeoutMs = positiveInteger(options.lifecycleTimeoutMs, DEFAULT_LIFECYCLE_TIMEOUT_MS, "lifecycleTimeoutMs");
     for (const provision of snapshotCapabilityProvisions([
+      { capability: filePreviewingCapabilityToken, value: this.filePreviewing },
       { capability: contentRenderingCapabilityToken, value: this.contentRendering },
+      { capability: markdownRenderingCapabilityToken, value: this.markdownRendering },
+      { capability: transcriptRenderingCapabilityToken, value: transcriptRenderingCapability },
       { capability: syntaxHighlightingCapabilityToken, value: this.syntaxHighlighting },
       { capability: stylesheetIntegrationCapabilityToken, value: stylesheetIntegrationCapability },
       ...(options.hostCapabilities ?? []),
@@ -295,6 +345,7 @@ export class PluginRegistry {
   /** Publish host selection changes independently of contribution rendering. */
   notifySelectionChanged(): void {
     this.selection.notifyChanged();
+    this.markdownService.notifyChanged();
   }
 
   /** Registers one plugin as a serialized single-entry batch and throws its attributed failure. */
@@ -331,6 +382,7 @@ export class PluginRegistry {
     const reason = new DOMException("Browser plugin host is shutting down", "AbortError");
     for (const controller of this.activatingLifetimes) abortLifetime(controller, reason);
     for (const plugin of [...this.activePlugins, ...this.stagedPlugins]) abortLifetime(plugin.lifetimeController, reason);
+    this.markdownService.notifyChanged();
   }
 
   dispose(): Promise<void> {
@@ -350,9 +402,14 @@ export class PluginRegistry {
     this.pluginIds.clear();
     this.actions.splice(0);
     this.messageActions.splice(0);
+    this.filePreviewers.splice(0);
     this.contentRenderers.splice(0);
+    this.transcriptRenderers.splice(0);
+    this.transcriptRendererViews.clear();
     this.syntaxHighlighters.splice(0);
+    this.markdownExtensions.splice(0);
     this.chatContentRenderingViews.clear();
+    this.markdownService.clear();
     this.syntaxHighlightingViews.clear();
     this.workspacePanels.splice(0);
     this.applicationPanels.splice(0);
@@ -360,6 +417,7 @@ export class PluginRegistry {
     this.sessionLabels.splice(0);
     this.stylesheets.splice(0);
     this.themes.splice(0);
+    this.fileIconThemes.splice(0);
     this.themePairs.splice(0);
     this.contributionIds.clear();
     for (const plugin of plugins) {
@@ -486,6 +544,7 @@ export class PluginRegistry {
     const backendRevision = this.parseBackendRevision(registration.id, registration.backendRevision);
     const pairedRequestVersion = this.parsePairedCapabilityVersion(registration.id, "request", registration.pairedRequestVersion, backendRevision);
     const pairedChannelVersion = this.parsePairedCapabilityVersion(registration.id, "channel", registration.pairedChannelVersion, backendRevision);
+    const pairedResourceVersion = this.parsePairedCapabilityVersion(registration.id, "resource", registration.pairedResourceVersion, backendRevision);
     const plugin = parseBrowserPlugin(registration.plugin, declaration.sourcePluginId);
     if (plugin.apiVersion === 4 && !this.warnedLegacyPluginIds.has(declaration.sourcePluginId)) {
       this.warnedLegacyPluginIds.add(declaration.sourcePluginId);
@@ -509,7 +568,12 @@ export class PluginRegistry {
           svg,
           signal,
           lifetimeSignal: lifetimeController.signal,
-          localization: createPluginLocalization(this.options.localization ?? localization, declaration.sourcePluginId, registration.id, lifetimeController.signal),
+          localization: createPluginLocalization(
+            this.options.localization ?? localization, declaration.sourcePluginId, registration.id, lifetimeController.signal,
+            // Catalogs register before the host verifies plugin availability and are not re-evaluated when it
+            // changes, so they follow machine ownership only.
+            (selectedMachineId) => this.belongsToMachine(registration.id, registration.machineId, selectedMachineId, registration.sourcePluginId),
+          ),
           selection: this.selection.forPlugin(registration.id, lifetimeController.signal),
         })),
       );
@@ -521,11 +585,12 @@ export class PluginRegistry {
       const contributions = this.prepareContributions(
         registration,
         plugin.apiVersion === 5
-          ? withV5Services(versionedContributions, registration, workspacePluginBinding(registration.id, declaration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion), lifetimeController.signal)
+          ? withV5Services(versionedContributions, registration, workspacePluginBinding(registration.id, declaration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion), lifetimeController.signal)
           : versionedContributions,
         backendRevision,
         pairedRequestVersion,
         pairedChannelVersion,
+        pairedResourceVersion,
         lifetimeController.signal,
       );
       if (this.shuttingDown) throw new Error("Browser plugin registry is shutting down");
@@ -545,10 +610,40 @@ export class PluginRegistry {
     backendRevision: string | undefined,
     pairedRequestVersion: 1 | undefined,
     pairedChannelVersion: 1 | undefined,
+    pairedResourceVersion: 1 | undefined,
     lifetimeSignal: AbortSignal,
   ): PreparedPluginContributions {
     const runtimePluginId = registration.id;
     const contributionIds = new Set<QualifiedContributionId>();
+    const filePreviewers = (contributions.filePreviewers ?? []).map((value): RegisteredFilePreviewer => {
+      const snapshot = snapshotFilePreviewer(value);
+      return Object.freeze(snapshotDisplayMetadata(snapshot, {
+        ...snapshot, id: this.qualify(runtimePluginId, snapshot.id, contributionIds), pluginId: runtimePluginId,
+        binding: workspacePluginBinding(runtimePluginId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion),
+        lifetime: lifetimeSignal,
+        ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
+        ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
+      }));
+    });
+    const markdownExtensions = (contributions.markdownExtensions ?? []).map((value): RegisteredMarkdownExtension => {
+      const snapshot = snapshotMarkdownExtension(value);
+      return Object.freeze({ ...snapshot,
+        id: this.qualify(runtimePluginId, snapshot.id, contributionIds), pluginId: runtimePluginId, lifetime: lifetimeSignal,
+        ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
+        ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
+      });
+    });
+    const transcriptRenderers = (contributions.transcriptRenderers ?? []).map((renderer): RegisteredTranscriptRenderer => {
+      const snapshot = snapshotTranscriptRenderer(renderer, lifetimeSignal);
+      return Object.freeze({
+        ...snapshot,
+        id: this.qualify(runtimePluginId, snapshot.id, contributionIds),
+        localId: snapshot.id,
+        pluginId: runtimePluginId,
+        ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
+        ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
+      });
+    });
     const contentRenderers = (contributions.contentRenderers ?? []).map((renderer): RegisteredContentRenderer => {
       const snapshot = snapshotContentRenderer(renderer);
       const supports = snapshot.supports?.bind(snapshot);
@@ -567,6 +662,8 @@ export class PluginRegistry {
         },
       });
     });
+    filePreviewers.push(...contentRenderers.map((renderer) => textFilePreviewer(renderer, this.contentRendering,
+      workspacePluginBinding(runtimePluginId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion), lifetimeSignal)));
     const syntaxHighlighters = (contributions.syntaxHighlighters ?? []).map((contribution): RegisteredSyntaxHighlighter => {
       const snapshot = snapshotSyntaxHighlighter(contribution);
       const id = this.qualify(runtimePluginId, snapshot.id, contributionIds);
@@ -587,14 +684,14 @@ export class PluginRegistry {
     const messageActions = (contributions.messageActions ?? []).map((action): RegisteredMessageAction => Object.freeze(snapshotDisplayMetadata<RegisteredMessageAction>(action, {
       ...action,
       id: this.qualify(runtimePluginId, action.id, contributionIds),
-      binding: workspacePluginBinding(runtimePluginId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion),
+      binding: workspacePluginBinding(runtimePluginId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion),
       ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
     })));
     const actions = (contributions.actions ?? []).map((action) => this.qualifyAction(runtimePluginId, action, registration.machineId, registration.sourcePluginId, contributionIds));
     const applicationPanels = (contributions.applicationPanels ?? []).map((panel) => this.qualifyApplicationPanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, contributionIds));
-    const workspacePanels = (contributions.workspacePanels ?? []).map((panel) => this.qualifyWorkspacePanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
-    const workspaceLabels = (contributions.workspaceLabels ?? []).map((contribution) => this.qualifyWorkspaceLabelContribution(runtimePluginId, contribution, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
-    const sessionLabels = (contributions.sessionLabels ?? []).map((contribution) => this.qualifySessionLabelContribution(runtimePluginId, contribution, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
+    const workspacePanels = (contributions.workspacePanels ?? []).map((panel) => this.qualifyWorkspacePanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion, contributionIds));
+    const workspaceLabels = (contributions.workspaceLabels ?? []).map((contribution) => this.qualifyWorkspaceLabelContribution(runtimePluginId, contribution, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion, contributionIds));
+    const sessionLabels = (contributions.sessionLabels ?? []).map((contribution) => this.qualifySessionLabelContribution(runtimePluginId, contribution, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion, contributionIds));
     const stylesheets = (contributions.stylesheets ?? []).map((style) => ({
       ...this.qualifyStylesheet(runtimePluginId, style, contributionIds),
       ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
@@ -603,10 +700,17 @@ export class PluginRegistry {
     const themes = registration.machineId === undefined
       ? (contributions.themes ?? []).map((theme) => this.qualifyTheme(runtimePluginId, theme, contributionIds))
       : [];
+    const fileIconThemes = registration.machineId === undefined
+      ? (contributions.fileIconThemes ?? []).map((theme) => {
+        const snapshot = snapshotFileIconTheme(theme);
+        const id = this.qualify(runtimePluginId, snapshot.id, contributionIds);
+        return Object.freeze(snapshotDisplayMetadata(theme, { ...snapshot, id, pluginId: runtimePluginId, localId: snapshot.id }));
+      })
+      : [];
     const themePairs = registration.machineId === undefined
       ? (contributions.themePairs ?? []).map((pair) => this.qualifyThemePair(runtimePluginId, pair, contributionIds))
       : [];
-    return Object.freeze({ ids: contributionIds, contentRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, themePairs });
+    return Object.freeze({ ids: contributionIds, filePreviewers, contentRenderers, transcriptRenderers, syntaxHighlighters, markdownExtensions, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, fileIconThemes, themePairs });
   }
 
   private dependencyFailure(
@@ -710,8 +814,11 @@ export class PluginRegistry {
     this.activePlugins.push(staged);
     this.pluginIds.add(staged.registration.id);
     for (const contributionId of staged.contributions.ids) this.contributionIds.add(contributionId);
+    this.filePreviewers.push(...staged.contributions.filePreviewers);
     this.contentRenderers.push(...staged.contributions.contentRenderers);
+    this.transcriptRenderers.push(...staged.contributions.transcriptRenderers);
     this.syntaxHighlighters.push(...staged.contributions.syntaxHighlighters);
+    this.markdownExtensions.push(...staged.contributions.markdownExtensions);
     this.actions.push(...staged.contributions.actions);
     this.messageActions.push(...staged.contributions.messageActions);
     this.workspacePanels.push(...staged.contributions.workspacePanels);
@@ -720,7 +827,16 @@ export class PluginRegistry {
     this.sessionLabels.push(...staged.contributions.sessionLabels);
     this.stylesheets.push(...staged.contributions.stylesheets);
     this.themes.push(...staged.contributions.themes);
+    this.fileIconThemes.push(...staged.contributions.fileIconThemes);
     this.themePairs.push(...staged.contributions.themePairs);
+    for (const kind of ["themes", "themePairs"] as const) {
+      for (const contribution of staged.contributions[kind]) {
+        const key = `${kind}:${contribution.id}`;
+        if (this.warnedRuntimeThemeContributions.has(key)) continue;
+        this.warnedRuntimeThemeContributions.add(key);
+        console.warn(`Browser plugin ${staged.registration.id} registers deprecated runtime ${kind} contribution ${contribution.id}; move it to piWeb.plugins[].${kind} in package.json (use browserRoot and stylesheet paths for static themes). Runtime contributions remain supported for compatibility.`);
+      }
+    }
     this.activeCapabilitiesByRegistration.set(staged.registration.id, new Map(staged.provisions.map((provision) => [provision.key, provision])));
     if (hostSnapshots.length > 0) {
       this.hostCapabilitySnapshotsByRegistration.set(staged.registration.id, new Map(hostSnapshots.map((snapshot) => [snapshot.key, snapshot])));
@@ -729,6 +845,7 @@ export class PluginRegistry {
       this.gatewayPluginIds.add(staged.registration.id);
       if (staged.declaration.machineSpecific) this.gatewayMachineSpecificPluginIds.add(staged.registration.id);
     }
+    this.markdownService.notifyChanged();
   }
 
   private async failBeforeStart(
@@ -938,15 +1055,29 @@ export class PluginRegistry {
     return this.stylesheets.filter((style) => this.isContributionActive(style.pluginId, style.machineId, selectedMachineId, style.sourcePluginId));
   }
 
-  getThemes(): QualifiedThemeContribution[] {
-    return this.themes
+  getFileIconThemes(): QualifiedFileIconThemeContribution[] {
+    return this.fileIconThemes
       .filter((theme) => this.isContributionEnabled(theme.pluginId, undefined))
       .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
+  /** Backend-validated, enabled declarations do not depend on browser activation. */
+  setDeclarativeThemes(themes: readonly QualifiedThemeContribution[], pairs: readonly QualifiedThemePairContribution[]): void {
+    const runtimeIds = new Set([...this.themes, ...this.themePairs].map(({ id }) => id));
+    for (const contribution of [...themes, ...pairs]) {
+      if (runtimeIds.has(contribution.id)) throw new Error(`Theme contribution ${contribution.id} is declared both statically and at runtime`);
+    }
+    this.declarativeThemes = [...themes];
+    this.declarativeThemePairs = [...pairs];
+  }
+
+  getThemes(): QualifiedThemeContribution[] {
+    return [...this.declarativeThemes, ...this.themes.filter((theme) => this.isContributionEnabled(theme.pluginId, undefined))]
+      .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
+  }
+
   getThemePairs(): QualifiedThemePairContribution[] {
-    return this.themePairs
-      .filter((pair) => this.isContributionEnabled(pair.pluginId, undefined))
+    return [...this.declarativeThemePairs, ...this.themePairs.filter((pair) => this.isContributionEnabled(pair.pluginId, undefined))]
       .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
@@ -1044,6 +1175,7 @@ export class PluginRegistry {
     backendRevision: string | undefined,
     pairedRequestVersion: 1 | undefined,
     pairedChannelVersion: 1 | undefined,
+    pairedResourceVersion: 1 | undefined,
     contributionIds: Set<QualifiedContributionId>,
   ): QualifiedWorkspacePanelContribution {
     const id = this.qualify(pluginId, panel.id, contributionIds);
@@ -1051,7 +1183,7 @@ export class PluginRegistry {
     const badge = panel.badge;
     const visible = panel.visible;
     const onInvalidate = panel.onInvalidate;
-    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion);
+    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion);
     this.rejectPanelAliases(panel, id);
     const sourceContributionId: QualifiedContributionId = `${sourcePluginId ?? pluginId}:${panel.id}`;
     const invalidationResources = this.parseInvalidationResources(id, panel.invalidationResources);
@@ -1087,12 +1219,13 @@ export class PluginRegistry {
     backendRevision: string | undefined,
     pairedRequestVersion: 1 | undefined,
     pairedChannelVersion: 1 | undefined,
+    pairedResourceVersion: 1 | undefined,
     contributionIds: Set<QualifiedContributionId>,
   ): QualifiedWorkspaceLabelContribution {
     const id = this.qualify(pluginId, contribution.id, contributionIds);
     const visible = contribution.visible;
     const items = contribution.items;
-    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion);
+    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion);
     return {
       ...contribution,
       id,
@@ -1112,12 +1245,13 @@ export class PluginRegistry {
     backendRevision: string | undefined,
     pairedRequestVersion: 1 | undefined,
     pairedChannelVersion: 1 | undefined,
+    pairedResourceVersion: 1 | undefined,
     contributionIds: Set<QualifiedContributionId>,
   ): QualifiedSessionLabelContribution {
     const id = this.qualify(pluginId, contribution.id, contributionIds);
     const visible = contribution.visible;
     const items = contribution.items;
-    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion);
+    const binding = workspacePluginBinding(pluginId, sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion);
     const scopedContext = (context: SessionLabelContext) => sessionLabelScopes.get(context)?.(binding) ?? context;
     return {
       ...contribution,
@@ -1143,6 +1277,7 @@ export class PluginRegistry {
 
   private qualifyTheme(pluginId: string, theme: ThemeContribution, contributionIds: Set<QualifiedContributionId>): QualifiedThemeContribution {
     const id = this.qualify(pluginId, theme.id, contributionIds);
+    if ([...this.declarativeThemes, ...this.declarativeThemePairs].some((declared) => declared.id === id)) throw new Error(`Theme ${id} is declared both statically and at runtime`);
     const stylesheetIds = new Set<QualifiedContributionId>();
     const stylesheets = theme.stylesheets?.map((style) => this.qualifyStylesheet(`${pluginId}:${theme.id}`, style, stylesheetIds));
     return snapshotDisplayMetadata<QualifiedThemeContribution>(theme, { ...theme, id, pluginId, localId: theme.id,
@@ -1152,6 +1287,7 @@ export class PluginRegistry {
 
   private qualifyThemePair(pluginId: string, pair: ThemePairContribution, contributionIds: Set<QualifiedContributionId>): QualifiedThemePairContribution {
     const id = this.qualify(pluginId, pair.id, contributionIds);
+    if ([...this.declarativeThemes, ...this.declarativeThemePairs].some((declared) => declared.id === id)) throw new Error(`Theme pair ${id} is declared both statically and at runtime`);
     return snapshotDisplayMetadata<QualifiedThemePairContribution>(pair, {
       ...pair,
       id,
@@ -1179,6 +1315,11 @@ export class PluginRegistry {
     // Portable gateway registrations still use selected-machine helpers, so
     // their lifecycle gate follows that effective machine rather than local.
     if (!this.isContributionEnabled(pluginId, machineId ?? selectedMachineId)) return false;
+    return this.belongsToMachine(pluginId, machineId, selectedMachineId, sourcePluginId);
+  }
+
+  /** Machine ownership alone, without the host's asynchronous lifecycle gate. */
+  private belongsToMachine(pluginId: string, machineId: string | undefined, selectedMachineId: string, sourcePluginId: string | undefined): boolean {
     if (machineId === undefined) return !this.isGatewayPluginHiddenForMachine(pluginId, selectedMachineId);
     return machineId === selectedMachineId && !this.isRemotePluginHiddenByGateway(sourcePluginId, machineId);
   }
@@ -1252,7 +1393,7 @@ export class PluginRegistry {
 
   private parsePairedCapabilityVersion(
     pluginId: string,
-    capability: "request" | "channel",
+    capability: "request" | "channel" | "resource",
     value: unknown,
     backendRevision: string | undefined,
   ): 1 | undefined {
@@ -1330,6 +1471,7 @@ function workspacePluginBinding(
   backendRevision: string | undefined,
   pairedRequestVersion: 1 | undefined,
   pairedChannelVersion: 1 | undefined,
+  pairedResourceVersion: 1 | undefined,
 ): WorkspacePluginBinding {
   return Object.freeze({
     registrationPluginId,
@@ -1337,6 +1479,7 @@ function workspacePluginBinding(
     ...(backendRevision === undefined ? {} : { backendRevision }),
     ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
     ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
+    ...(pairedResourceVersion === undefined ? {} : { pairedResourceVersion }),
   });
 }
 
@@ -1415,7 +1558,16 @@ function contributionsForVersion(contributions: PluginContributions, apiVersion:
     }
     return contributions;
   }
-  if (contributions.stylesheets !== undefined || contributions.syntaxHighlighters !== undefined
+  if (contributions.transcriptRenderers !== undefined) {
+    throw new BrowserPluginIncompatibleError("Transcript renderer contributions require browser API v5");
+  }
+  if (contributions.markdownExtensions !== undefined) {
+    throw new BrowserPluginIncompatibleError("Markdown extension contributions require browser API v5");
+  }
+  if (contributions.fileIconThemes !== undefined) {
+    throw new BrowserPluginIncompatibleError("File icon theme contributions require browser API v5");
+  }
+  if (contributions.filePreviewers !== undefined || contributions.stylesheets !== undefined || contributions.syntaxHighlighters !== undefined
     || contributions.contentRenderers?.some((renderer) => renderer.title !== undefined || renderer.supports !== undefined) === true
     || contributions.themes?.some((theme) => theme.stylesheets !== undefined) === true) {
     throw new BrowserPluginIncompatibleError("Stylesheet, syntax-highlighter and extended renderer contributions require browser API v5");
@@ -1463,7 +1615,7 @@ function withV5Services(
     const machineId = context.machine?.id ?? context.state?.selectedMachine?.id ?? "local";
     const backend = ownerMachineId === machineId ? createPluginBackend(binding, machineId, lifetimeSignal) : undefined;
     // Never reuse a context's backend: it may belong to another plugin or machine.
-    return { ...context, catalog: createPluginCatalog(machineId, lifetimeSignal), backend };
+    return { ...context, catalog: createPluginCatalog(machineId, lifetimeSignal), sessions: createPluginSessionLifecycle(machineId, lifetimeSignal), backend };
   };
   const wrap = <Context extends MachineContext, Args extends unknown[], Result>(callback: (context: Context, ...args: Args) => Result) =>
     (context: Context, ...args: Args): Result => callback(services(context), ...args);
@@ -1774,7 +1926,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "themePairs", "contentRenderers", "syntaxHighlighters", "messageActions"];
+const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "fileIconThemes", "themePairs", "contentRenderers", "transcriptRenderers", "syntaxHighlighters", "markdownExtensions", "filePreviewers", "messageActions"];
 
 function isPluginContributions(value: unknown): value is PluginContributions {
   if (!isRecord(value)) return false;

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { render } from "lit";
 import { useDeferredContent, settleDeferredContent } from "./deferredContent.testSupport";
 import { PluginRegistry } from "../plugins/registry";
@@ -9,9 +9,11 @@ import type { TokenHighlightedCode } from "../../../../pi-web-plugins/code-highl
 import codeHighlight from "../../../../pi-web-plugins/code-highlight/pi-web-plugin";
 import type { MermaidPreview } from "../../../../pi-web-plugins/mermaid/MermaidPreview";
 import mermaid from "../../../../pi-web-plugins/mermaid/pi-web-plugin";
+import { mockMermaidCanvas } from "../../../../pi-web-plugins/mermaid/mermaidTheme.testSupport";
 
 const registries: PluginRegistry[] = [];
 useDeferredContent();
+beforeEach(mockMermaidCanvas);
 afterEach(async () => {
   document.body.replaceChildren();
   for (const registry of registries.splice(0)) await registry.dispose();

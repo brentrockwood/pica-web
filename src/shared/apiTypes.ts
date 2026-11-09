@@ -5,7 +5,6 @@ import type { SessionNotificationPresentation } from "./sessionNotificationPrese
 import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.js";
 import type { MachineStatusUiEvent } from "./machineStatus.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
-import type { ThinkingLevel } from "./thinkingLevels.js";
 import type { PiWebDefaultLocalization } from "./defaultLocalization.js";
 export type { PiWebDefaultLocalization, LocalizationHourCycle } from "./defaultLocalization.js";
 import type {
@@ -85,6 +84,8 @@ export type MachineStatus = "unknown" | "online" | "offline" | "error";
  */
 export const PI_WEB_CAPABILITIES = {
   pluginLifecycle: "plugins.lifecycle",
+  sessionCleanupPinnedExclusions: "sessions.cleanup.pinnedExclusions",
+  sessionPinsDaemonOwned: "sessions.pins.daemonOwned",
 } as const;
 
 export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
@@ -193,10 +194,15 @@ export interface PiWebConfigValues {
   quietMode?: boolean;
   host?: string;
   port?: number;
+  /** Legacy Vite-only fallback, ignored when hostAccess is supplied. */
   allowedHosts?: string[] | true;
+  /** Shared gateway/Vite Host policy; omission leaves the decision unset. */
+  hostAccess?: PiWebHostAccess;
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
-  /** External filesystem roots PI WEB may expose outside a workspace. */
+  /** Deployment base roots; combined with independently configurable path additions. */
+  basePaths?: string[];
+  /** Additional external filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */
   uploads?: PiWebUploadsConfig;
@@ -206,20 +212,14 @@ export interface PiWebConfigValues {
   maxUploadBytes?: number;
   /** Destination for newly archived transcripts; the index remains in the PI WEB data directory. */
   sessionArchive?: { directory?: string };
-  /** Machine-wide naming overrides; defaults are the session model, 24 tokens, and minimal thinking. */
-  sessionNaming?: {
-    model?: string;
-    maxTokens?: number;
-    thinkingLevel?: ThinkingLevel;
-    /** Total wall time in milliseconds; defaults to 10000 when omitted. */
-    timeoutMs?: number;
-  };
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
+  /** When true, LLMs can send messages to other sessions. On by default; independent of spawning. */
+  sessionMessages?: boolean;
   /**
-   * When true, LLMs can start tracked child sessions via the
-   * spawn_subsession / list_subsessions / check_subsession / read_subsession
-   * tools. On by default; set to `false` to disable. Requires spawnSessions
+   * When true, LLMs can start, inspect, stop, resume, and archive tracked
+   * child sessions through the subsession tools.
+   * On by default; set to `false` to disable. Requires spawnSessions
    * to be enabled.
    */
   subsessions?: boolean;
@@ -384,16 +384,28 @@ export interface PiWebConfigEnvOverrides {
   port: boolean;
   allowedHosts: boolean;
   spawnSessions: boolean;
+  sessionMessages: boolean;
   subsessions: boolean;
   askUser: boolean;
 }
+
+export type PiWebHostAccess = { mode: "restricted"; hosts: string[] } | { mode: "any" };
 
 export interface PiWebConfigResponse {
   path: string;
   exists: boolean;
   config: PiWebConfigValues;
   effectiveConfig: PiWebConfigValues;
+  /** Gateway startup snapshot: null is undecided; omitted by older servers and selected-machine views. */
+  activeHostAccess?: PiWebHostAccess | null;
   envOverrides: PiWebConfigEnvOverrides;
+  /** JSON-pointer setting identifiers mapped to controlling environment variable names. */
+  enforcedSettings?: Record<string, string>;
+  /** JSON-pointer setting identifiers mapped to their winning configuration source. */
+  configSources?: Record<string, string>;
+  /** Optional deployment-owned defaults, never written by Settings. */
+  defaultsPath?: string;
+  defaultsConfig?: PiWebConfigValues;
 }
 
 export interface Project {
@@ -476,6 +488,17 @@ export type WorkspaceProviderAuthorityResolution = Omit<WorkspaceProviderResolut
 export interface SessionRef {
   id: string;
   cwd: string;
+}
+
+/**
+ * The project and workspace that list a session, answered from its id alone so
+ * links that carry only `?session=<id>` can redirect to the full route. A
+ * session no open project lists is a 404 rather than a location.
+ */
+export interface SessionLocation {
+  sessionId: string;
+  projectId: string;
+  workspaceId: string;
 }
 
 export type ServerNoticeSeverity = "info" | "warning" | "error";
@@ -652,6 +675,8 @@ export interface SessionNotificationSummaryEvent {
 
 export interface SessionInfo extends SessionRef {
   path: string;
+  /** Session yielded for human input; any new agent run clears this state. */
+  interventionRequired?: boolean;
   /** Only true for positively verified tracked agent subsessions; absent otherwise. */
   agentSubsession?: boolean;
   /** True when the server has verified a backing session file exists; false when known transient. */
@@ -704,6 +729,8 @@ export interface SessionBulkDeleteArchivedResponse {
 }
 
 export interface SessionCleanupRequest {
+  /** Exclude sessions pinned in navigation preferences. Omit/false to retain existing cleanup behavior. */
+  skipPinned?: boolean;
   /** Archive non-archived sessions whose modified time is older than this many days. Omit/null to disable. */
   archiveIdleDays?: number | null;
   /** Permanently delete archived sessions whose archivedAt time is older than this many days. Omit/null to disable. */
@@ -734,6 +761,7 @@ export interface SessionCleanupPreviewResponse {
   projects: SessionCleanupProjectSummary[];
   totals: SessionCleanupTotals;
   skippedBusySessionIds?: string[];
+  skippedPinnedSessionIds?: string[];
 }
 
 export interface SessionCleanupExecuteResponse extends SessionCleanupPreviewResponse {
@@ -1102,10 +1130,12 @@ export interface SessionModelCatalogEntry {
  */
 export interface SessionModelCatalogResponse {
   models: SessionModelCatalogEntry[];
+  /** Canonical selection mode, independent of row membership. Optional for compatibility with older servers. */
+  scope?: "all" | "manual";
 }
 
-/** Canonical model-scope presets exposed by the model picker's bulk toggle. */
-export type SessionModelScopeMode = "all" | "current";
+/** All removes the selection; manual snapshots available models; current selects only the current model. */
+export type SessionModelScopeMode = "all" | "manual" | "current";
 
 // Domain type is owned by pi and re-exported from the shared thinking-levels
 // module. Wire/data fields below intentionally use `string` so an unknown level
@@ -1219,6 +1249,8 @@ export interface SessionWarning {
 
 export interface SessionStatus {
   sessionId: string;
+  /** Live value, including false; absent on older daemons. */
+  interventionRequired?: boolean;
   /** True when the server has verified a backing session file exists; false when known transient. */
   persisted?: boolean;
   /**
@@ -1489,6 +1521,14 @@ export interface WorkspaceChangedEvent {
   projectId: string;
 }
 
+/** Scoped invalidation; consumers reload the current daemon-owned pin preference. */
+export interface SessionPinsChangedEvent {
+  type: "session-pins.changed";
+  projectId: string;
+  workspaceId: string;
+  revision: number;
+}
+
 export type GlobalSessionEvent =
   | Extract<SessionUiEventBody, { type: "status.update" | "activity.update" | "session.name" | "session.created" }>
   | SessionNotificationSummaryEvent
@@ -1496,5 +1536,6 @@ export type GlobalSessionEvent =
   | SessionStartupProgressEvent
   | ModelScopeChangedEvent
   | WorkspaceChangedEvent
+  | SessionPinsChangedEvent
   | ServerNoticeEvent;
 export type RealtimeEvent = GlobalSessionEvent | MachineStatusUiEvent;

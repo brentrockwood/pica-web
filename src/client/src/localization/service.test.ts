@@ -28,6 +28,35 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+describe("localization deployment policy", () => {
+  it.each(["language", "formatLocale", "timeZone", "hourCycle"] as const)("locks only %s, preserves hidden choices and restores them when unlocked", async (field) => {
+    const service = new LocalizationService();
+    const local = { language: "en", formatLocale: "de-DE", timeZone: "Europe/Berlin", hourCycle: "h12" as const };
+    const defaults = { language: "fr", formatLocale: "fr-FR", timeZone: "UTC", hourCycle: "h23" as const };
+    await service.setPreferenceOverrides(local);
+    await service.setPreferenceDefaults(defaults, { enforcedFields: { [field]: "DEPLOYMENT_ENV" }, sources: { [field]: "environment" } });
+    expect(service.preferences).toEqual({ ...local, [field]: defaults[field] });
+    expect(service.preferenceOverrides).toEqual(local);
+    expect(service.preferenceSettingPolicy(field)).toEqual({ locked: true, enforcedBy: "DEPLOYMENT_ENV", source: "environment" });
+    // A broad reset removes unlocked overrides only, not the saved value hidden by policy.
+    await service.setPreferenceOverrides({});
+    expect(service.preferenceOverrides).toEqual({ [field]: local[field] });
+    expect(service.preferences).toEqual(defaults);
+    await service.setPreferenceDefaults(defaults, {});
+    expect(service.preferences).toEqual({ ...defaults, [field]: local[field] });
+    expect(service.preferenceSettingPolicy(field).locked).toBe(false);
+  });
+
+  it("retains enforcement when ordinary defaults are updated without new metadata", async () => {
+    const service = new LocalizationService({ preferences: { language: "en", formatLocale: "de-DE" } });
+    await service.setPreferenceDefaults({ language: "en", formatLocale: "fr-FR" }, { enforcedFields: { formatLocale: "FORMAT_ENV" } });
+    await service.setPreferenceDefaults({ language: "en", formatLocale: "sv-SE" });
+    await service.setPreferences({ language: "en", formatLocale: "en-GB" });
+    expect(service.preferences.formatLocale).toBe("sv-SE");
+    expect(service.preferenceOverrides.formatLocale).toBe("de-DE");
+  });
+});
+
 describe("localization", () => {
   it("lists installed catalog languages without loading, deduplicates, and removes released languages", async () => {
     const { service } = setup();
@@ -125,6 +154,24 @@ describe("localization", () => {
     expect(diagnostics.filter(({ code }) => code === "invalid")).toHaveLength(2);
     messages.t("greeting", { name: "Ada" });
     expect(diagnostics.filter(({ code }) => code === "missing")).toHaveLength(1);
+  });
+
+  it("applies a machine-scoped pack only while its machine is selected", async () => {
+    const { service, messages } = setup("fr");
+    const load = vi.fn(() => Promise.resolve({ cancel: "Annuler" }));
+    service.registerCatalog({ id: "remote-pack", namespace: "test", locale: "fr", load }, (machineId) => machineId === "remote");
+    await service.ready;
+    expect(messages.t("cancel")).toBe("Cancel");
+    expect(service.availableLanguages).toEqual(["en"]);
+    expect(load).not.toHaveBeenCalled();
+    service.setMachine("remote");
+    await service.ready;
+    expect(messages.t("cancel")).toBe("Annuler");
+    expect(service.availableLanguages).toEqual(["en", "fr"]);
+    expect(service.language).toBe("fr");
+    service.setMachine("local");
+    expect(messages.t("cancel")).toBe("Cancel");
+    expect(service.language).toBe("en");
   });
 
   it("supports packs registered before their target namespace", async () => {

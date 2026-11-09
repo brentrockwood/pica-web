@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it } from "vitest";
-import { ChatView, chatMessageMetadataLabel } from "./ChatView";
+import { ChatView } from "./ChatView";
+import { chatTranscriptMessages } from "../chatTranscriptMessages";
 
 const message = {
   role: "assistant" as const,
@@ -11,9 +12,10 @@ const message = {
 
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); });
 
-it("keeps the same Info button and focus while showing and hiding a separate metadata region", async () => {
+it.each(["conversation", "grouped"] as const)("keeps the same Info button and focus while toggling metadata below %s content", async (layout) => {
   const view = new ChatView();
-  view.messages = [message];
+  view.messages = [layout === "conversation" ? message : { ...message, parts: [{ type: "thinking", text: "Plan" }] }];
+  view.isSendingPrompt = layout === "grouped";
   document.body.append(view);
   await view.updateComplete;
   const button = view.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Message information"]');
@@ -32,9 +34,9 @@ it("keeps the same Info button and focus while showing and hiding a separate met
   expect(button.getAttribute("aria-expanded")).toBe("true");
   expect(button.querySelector("svg")).not.toBeNull();
   expect(region.hidden).toBe(false);
-  expect(region.textContent).toBe(chatMessageMetadataLabel(message));
-  const content = view.shadowRoot?.querySelector(".conversation-content");
-  if (!content) throw new Error("Expected conversation content");
+  expect(region.textContent).toContain("example/model");
+  const content = view.shadowRoot?.querySelector(".message-frame-content");
+  if (!content) throw new Error("Expected message content");
   expect(content.nextElementSibling).toBe(region);
 
   button.click();
@@ -56,8 +58,24 @@ it("keeps conversational roles available to assistive technology without repeate
   expect(headers[1]?.querySelector(".visually-hidden")?.textContent).toBe("assistant");
   expect(headers[0]?.querySelector(".label")).toBeNull();
   expect(headers[1]?.querySelector(".label")).toBeNull();
-  expect(headers[2]?.querySelector(".label")?.textContent).toBe("system");
+  expect(headers[2]?.querySelector(".label")?.textContent).toBe(chatTranscriptMessages.t("system"));
   expect(view.shadowRoot?.querySelectorAll('button[aria-label="Message information"]')).toHaveLength(3);
+
+  // These hooks, unlike the remaining transcript DOM, are the supported theme contract.
+  const bubbles = [...view.renderRoot.querySelectorAll<HTMLElement>(".chat-message")];
+  expect(bubbles.map((bubble) => bubble.dataset["speaker"])).toEqual(["user", "assistant"]);
+  for (const bubble of bubbles) {
+    const content = bubble.querySelector(":scope > .chat-message-content");
+    expect(content).not.toBeNull();
+    expect(content?.querySelector(":scope > .chat-message-header")).not.toBeNull();
+    expect(content?.querySelector(":scope > .chat-message-body")).not.toBeNull();
+    expect(content?.nextElementSibling).toBe(bubble.querySelector(":scope > .chat-message-meta"));
+  }
+
+  view.messages = [{ ...message, role: "user" }];
+  await view.updateComplete;
+  expect(view.renderRoot.querySelectorAll(".chat-message")).toHaveLength(1);
+  expect(view.renderRoot.querySelector(".chat-message")?.getAttribute("data-speaker")).toBe("user");
 });
 
 it("shows only the metadata region controlled by the selected message's Info button", async () => {

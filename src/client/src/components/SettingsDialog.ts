@@ -4,18 +4,24 @@ import { customElement, property, state } from "lit/decorators.js";
 import { cache } from "lit/directives/cache.js";
 import { live } from "lit/directives/live.js";
 import type { AppAction } from "../actions";
-import { configApi, piPackagesApi, pluginsApi, type Machine, type MachineHealth, type MachineRuntime, type SessionModel, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
+import { loadThemeCatalog, type BrowserThemeCatalog } from "../themeCatalog";
+import { configApi, piPackagesApi, pluginsApi, type Machine, type MachineHealth, type MachineRuntime, type PiPackageMutationResponse, type PiPackageScope, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
 import type { McpAuthContext, McpAuthHandler } from "./settings/SettingsMcpPanel";
 import "./settings/SettingsMcpPanel";
 import type { SettingsSection } from "../settingsRoute";
+import { revealSettingsTarget } from "./settings/settingsTarget";
 import "./ModalSurface";
 import type { ModalSurface } from "./ModalSurface";
+import "./ConfirmationDialog";
+import type { ConfirmationDialog } from "./ConfirmationDialog";
+import { hostAccessChangeBlocksHostname } from "./settings/settingsHostAccess";
 import { uiDialogStyles, uiSelectionStyles } from "./ui/dialogStyles";
 import "./settings/SettingsGeneralPanel";
 import type { SettingsGeneralPanel } from "./settings/SettingsGeneralPanel";
 import "./settings/SettingsThemePanel";
-import type { QualifiedThemeContribution } from "../plugins/types";
-import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../theme";
+import type { QualifiedFileIconThemeContribution, QualifiedThemeContribution } from "../plugins/types";
+import "./settings/SettingsFileIconThemePanel";
+import { configureThemePolicy, DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../theme";
 import "./settings/SettingsSessiondPanel";
 import "./settings/SettingsPackagesPanel";
 import "./settings/SettingsPluginsPanel";
@@ -24,9 +30,10 @@ import { piPackagesResponseAfterMutation, shouldRefreshGatewayPluginsAfterPiPack
 import { loadGatewaySettingsData, loadPiPackagesData } from "./settings/settingsDataLoading";
 import { mergeSelectedMachineAccessConfig } from "./settings/settingsMachineAccessConfig";
 import { isSelectedMachineSettingsUnsupported, pluginLifecycleSupport, selectedMachineSettingsSupportKey, settingsMachineTarget, type PluginLifecycleSupport, type SettingsMachineTarget } from "./settings/settingsMachineTarget";
-import { mergeSelectedMachinePluginConfig, pluginEnabledConfigPatch } from "./settings/settingsPluginConfig";
+import { mergeSelectedMachinePluginConfig } from "./settings/settingsPluginConfig";
+import { enforcedSetting, explicitConfigUpdate, resetConfigUpdate, settingPath } from "./settings/settingsConfigUpdate";
 import { mergeSelectedMachineSessiondConfig } from "./settings/settingsSessiondConfig";
-import { LocalizationController, localization } from "../localization/browser";
+import { configureLocalizationPolicy, LocalizationController, localization } from "../localization/browser";
 import source from "./settingsDialog.messages";
 import { settingsFeedbackTargetLabel, settingsFeedbackLifecycleUnavailable, settingsFeedbackSelectedError, settingsFeedbackPackageError, settingsFeedbackPackageFollowUp } from "./settings/settingsFeedback";
 
@@ -43,8 +50,22 @@ export class SettingsDialog extends LitElement {
   }
 
   @property({ attribute: false }) section: SettingsSection = "general";
+  /** Browser authority for gateway lockout warnings; independent of selected machine. */
+  @property({ attribute: false }) currentHostname = typeof location === "undefined" ? "" : location.hostname;
+  /** Optional data-settings-target destination within the active section. */
+  @property({ attribute: false }) target: string | undefined;
+  private revealedTarget: string | undefined;
+  private targetRequest = 0;
   @property({ attribute: false }) actions: AppAction[] = [];
   @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
+  @property({ attribute: false }) onThemeCatalogLoaded: (catalog: BrowserThemeCatalog) => void = () => undefined;
+  @state() private themeCatalogLoading = false;
+  @state() private themeCatalogError = "";
+  private themeCatalogRequested = false;
+  @property({ attribute: false }) fileIconThemes: readonly QualifiedFileIconThemeContribution[] = [];
+  @property({ attribute: false }) fileIconPreference: string | undefined;
+  @property({ attribute: false }) onSelectFileIconTheme?: (id: string) => void;
+  @property({ attribute: false }) onResetFileIconTheme?: () => void;
   @property({ attribute: false }) themePreference: ThemePreference = DEFAULT_THEME_PREFERENCE;
   @property() activeThemeId = "";
   @property({ type: Boolean }) hasLocalThemeOverride = false;
@@ -63,6 +84,10 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false }) onNavigate?: (section: SettingsSection) => void;
   @property({ attribute: false }) onClose?: () => void;
   @property({ attribute: false }) onMachineConfigSaved?: (machineId: string) => void;
+  @property({ attribute: false }) onGatewayConfigLoaded?: (response: PiWebConfigResponse) => void;
+  /** A completed write from a closed dialog requires an authoritative refresh. */
+  @property({ attribute: false }) onGatewayConfigInvalidated?: () => void;
+  private gatewayPublisherRetired = false;
   @property({ attribute: false }) onConfigSaved?: (config: PiWebConfigValues) => void;
   @property({ attribute: false }) onRefreshMachineRuntime?: (machineId: string) => void | Promise<void>;
   @state() private configResponse: PiWebConfigResponse | undefined;
@@ -75,14 +100,10 @@ export class SettingsDialog extends LitElement {
   @state() private loading = true;
   @state() private accessLoading = true;
   @state() private sessiondLoading = true;
-  @state() private namingModels: SessionModel[] = [];
-  @state() private namingModelsLoading = true;
-  @state() private namingModelsErrorPresentation: DisplayText = "";
-  private get namingModelsError(): string { return displayText(this.namingModelsErrorPresentation); }
-  private set namingModelsError(value: DisplayText) { this.namingModelsErrorPresentation = value; }
   @state() private pluginLoading = true;
   @state() private packageLoading = true;
   @state() private saving = false;
+  private gatewayConfirmationPending = false;
   @state() private packageOperation: PiPackageOperationState | undefined;
   @state() private errorPresentation: DisplayText = "";
   private get error(): string { return displayText(this.errorPresentation); }
@@ -110,13 +131,14 @@ export class SettingsDialog extends LitElement {
   private loadRequestSeq = 0;
   private accessLoadRequestSeq = 0;
   private sessiondLoadRequestSeq = 0;
-  private namingModelsLoadRequestSeq = 0;
   private pluginLoadRequestSeq = 0;
   private packageLoadRequestSeq = 0;
   private packageMutationSeq = 0;
 
   override connectedCallback(): void {
+    this.gatewayPublisherRetired = false;
     super.connectedCallback();
+    this.loadThemeCatalogForGeneral();
     void this.loadConfig();
     void this.loadAccessConfigForTarget();
     void this.reloadSessiondState();
@@ -125,13 +147,19 @@ export class SettingsDialog extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.gatewayPublisherRetired = true;
+    // A closed dialog must not publish an old read over a newer dialog's save.
+    this.loadRequestSeq += 1;
     if (this.savedMessageTimer !== undefined) window.clearTimeout(this.savedMessageTimer);
     this.savedMessageTimer = undefined;
     super.disconnectedCallback();
   }
 
   protected override updated(changed: PropertyValues<this>): void {
+    if (changed.has("target") || changed.has("section")) this.revealedTarget = undefined;
+    void this.revealTarget();
     if (changed.has("section")) {
+      this.loadThemeCatalogForGeneral();
       // The surface must render its slot before the mobile tab row has layout.
       const surface = this.renderRoot.querySelector<ModalSurface>("modal-surface");
       void surface?.updateComplete.then(() => {
@@ -166,6 +194,35 @@ export class SettingsDialog extends LitElement {
     if (this.isConnected) void this.loadPluginsForTarget(currentTarget);
   }
 
+  private async revealTarget(): Promise<void> {
+    const request = ++this.targetRequest;
+    const target = this.target;
+    if (target === undefined || target === this.revealedTarget || !this.isConnected) return;
+    const isCurrent = () => this.isConnected && request === this.targetRequest && this.target === target;
+    if (await revealSettingsTarget(this.renderRoot, target, isCurrent)) this.revealedTarget = target;
+    // Missing targets can appear after a configuration load. The next render
+    // retries; a successful reveal is one-shot so saves do not steal focus.
+  }
+
+  private loadThemeCatalogForGeneral(): void {
+    if (this.isConnected && this.section === "general" && !this.themeCatalogRequested) void this.loadThemeInventory();
+  }
+
+  private async loadThemeInventory(): Promise<void> {
+    if (this.themeCatalogLoading) return;
+    this.themeCatalogRequested = true;
+    this.themeCatalogLoading = true;
+    this.themeCatalogError = "";
+    try {
+      const catalog = await loadThemeCatalog();
+      if (this.isConnected) this.onThemeCatalogLoaded(catalog);
+    } catch (error) {
+      if (this.isConnected) this.themeCatalogError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.themeCatalogLoading = false;
+    }
+  }
+
   override render(): TemplateResult {
     return html`
       <modal-surface .onClose=${() => this.onClose?.()} .label=${settingsDialogMessages.t("label")}>
@@ -189,6 +246,7 @@ export class SettingsDialog extends LitElement {
           </main>
         </div>
       </modal-surface>
+      <confirmation-dialog></confirmation-dialog>
     `;
   }
 
@@ -264,9 +322,6 @@ export class SettingsDialog extends LitElement {
   }
 
   private renderActiveSection(): TemplateResult {
-    // Keep the section -> panel routing in sync with the public
-    // `activeSettingsPanelTag` seam below, which tests assert against instead of
-    // scraping this template's markup.
     if (this.section === "mcp") {
       const target = this.settingsTarget();
       return html`
@@ -281,17 +336,14 @@ export class SettingsDialog extends LitElement {
       return html`
         <settings-sessiond-panel
           .configResponse=${this.sessiondConfigResponse}
-          .namingModels=${this.namingModels}
-          .namingModelsLoading=${this.namingModelsLoading}
-          .namingModelsError=${this.namingModelsError}
           .loading=${this.sessiondLoading}
           .saving=${this.saving}
           .error=${this.sessiondError}
           .savedMessage=${this.savedSection === "sessiond" ? this.savedMessage : ""}
           .targetLabel=${settingsFeedbackTargetLabel(this.settingsTarget())}
-          .targetId=${this.settingsTarget().id}
           .onReload=${() => this.reloadSessiondState()}
-          .onSave=${(config: PiWebConfigValues) => this.saveSessiondConfig(config)}
+          .onSave=${(config: PiWebConfigValues, unset?: string[]) => this.saveSessiondConfig(config, unset)}
+          .onReset=${(paths: string[]) => this.saveSessiondConfig({}, paths)}
         ></settings-sessiond-panel>
       `;
     }
@@ -306,6 +358,7 @@ export class SettingsDialog extends LitElement {
           .savedMessage=${this.savedSection === "shortcuts" ? this.savedMessage : ""}
           .onReload=${() => this.loadConfig()}
           .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
+          .onReset=${(paths: string[]) => this.saveConfig({}, paths)}
         ></settings-shortcuts-panel>
       `;
     }
@@ -338,6 +391,7 @@ export class SettingsDialog extends LitElement {
           .targetLabel=${settingsFeedbackTargetLabel(this.settingsTarget())}
           .onReload=${() => this.loadPluginsForTarget()}
           .onTogglePlugin=${(pluginId: string, enabled: boolean) => this.togglePlugin(pluginId, enabled)}
+          .onResetPlugin=${(pluginId: string) => this.togglePlugin(pluginId)}
         ></settings-plugins-panel>
       `;
     }
@@ -355,13 +409,20 @@ export class SettingsDialog extends LitElement {
         .targetId=${this.settingsTarget().id}
         .onReload=${() => this.loadConfig()}
         .onReloadMachine=${() => this.loadAccessConfigForTarget()}
-        .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
+        .onSave=${(config: PiWebConfigValues, unset?: string[]) => this.saveConfig(config, unset)}
+        .onReset=${(paths: string[]) => this.saveConfig({}, paths)}
+        .onResetMachine=${(paths: string[]) => this.saveMachineAccessConfig({}, paths)}
         .onSetQuietMode=${(quietMode: boolean) => this.saveQuietMode(quietMode)}
-        .onSaveMachineConfig=${(config: PiWebConfigValues) => this.saveMachineAccessConfig(config)}
+        .onSaveMachineConfig=${(config: PiWebConfigValues, unset?: string[]) => this.saveMachineAccessConfig(config, unset)}
       >
         <settings-theme-panel
           slot="appearance"
           .themes=${this.themes}
+          .catalogLoading=${this.themeCatalogLoading}
+          .catalogError=${this.themeCatalogError}
+          .onRetryCatalog=${() => this.loadThemeInventory()}
+          .configResponse=${this.configResponse}
+          .onReset=${(paths: string[]) => this.saveConfig({}, paths)}
           .preference=${this.themePreference}
           .defaultPreference=${this.configResponse?.effectiveConfig.defaultTheme ?? DEFAULT_THEME_PREFERENCE}
           .activeThemeId=${this.activeThemeId}
@@ -372,6 +433,13 @@ export class SettingsDialog extends LitElement {
           .onUseDefault=${this.onUseDefaultTheme}
           .onSetDefault=${(preference: ThemePreference) => this.saveDefaultTheme(preference)}
         ></settings-theme-panel>
+        <settings-file-icon-theme-panel
+          slot="appearance"
+          .themes=${this.fileIconThemes}
+          .preference=${this.fileIconPreference}
+          .onSelect=${this.onSelectFileIconTheme}
+          .onReset=${this.onResetFileIconTheme}
+        ></settings-file-icon-theme-panel>
       </settings-general-panel>
     `;
   }
@@ -390,6 +458,28 @@ export class SettingsDialog extends LitElement {
     this.onNavigate?.(section);
   }
 
+  private publishGatewayConfig(response: PiWebConfigResponse): void {
+    if (this.gatewayPublisherRetired) {
+      // The write still happened, but this dialog no longer owns the snapshot.
+      // In particular, a selected-machine save may have merged into old config.
+      this.onGatewayConfigInvalidated?.();
+      return;
+    }
+    // An accepted write also supersedes reads started while it was in flight.
+    this.loadRequestSeq += 1;
+    this.loading = false;
+    configureThemePolicy(response);
+    void configureLocalizationPolicy(response).catch((error: unknown) => {
+      console.warn("Failed to apply gateway localization policy", error);
+    });
+    this.onGatewayConfigLoaded?.(response);
+    this.onConfigSaved?.(response.effectiveConfig);
+  }
+
+  reloadGatewayConfig(): Promise<void> {
+    return this.loadConfig();
+  }
+
   private async loadConfig(): Promise<void> {
     const requestSeq = ++this.loadRequestSeq;
     this.loading = true;
@@ -403,7 +493,7 @@ export class SettingsDialog extends LitElement {
 
       if (result.config !== undefined) {
         this.configResponse = result.config;
-        this.onConfigSaved?.(result.config.effectiveConfig);
+        this.publishGatewayConfig(result.config);
       }
       if (result.plugins !== undefined) this.pluginsResponse = result.plugins;
       const failure = result.failure;
@@ -439,27 +529,8 @@ export class SettingsDialog extends LitElement {
   private async reloadSessiondState(target = this.settingsTarget()): Promise<void> {
     await Promise.all([
       this.loadSessiondConfigForTarget(target),
-      this.loadNamingModelsForTarget(target),
       this.onRefreshMachineRuntime?.(target.id),
     ]);
-  }
-
-  private async loadNamingModelsForTarget(target = this.settingsTarget()): Promise<void> {
-    const requestSeq = ++this.namingModelsLoadRequestSeq;
-    this.namingModelsLoading = true;
-    this.namingModelsError = "";
-    try {
-      const response = await configApi.namingModels(target.id);
-      if (!this.isCurrentNamingModelsLoad(requestSeq, target)) return;
-      this.namingModels = response.models;
-    } catch (error) {
-      if (this.isCurrentNamingModelsLoad(requestSeq, target)) {
-        const diagnostic = errorMessage(error);
-        this.namingModelsError = () => settingsDialogMessages.t("loadModels", { target: settingsFeedbackTargetLabel(target), error: settingsFeedbackSelectedError(diagnostic, target) });
-      }
-    } finally {
-      if (this.isCurrentNamingModelsLoad(requestSeq, target)) this.namingModelsLoading = false;
-    }
   }
 
   private async loadSessiondConfigForTarget(target = this.settingsTarget()): Promise<void> {
@@ -537,7 +608,7 @@ export class SettingsDialog extends LitElement {
     }
   }
 
-  private async togglePlugin(pluginId: string, enabled: boolean): Promise<void> {
+  private async togglePlugin(pluginId: string, enabled?: boolean): Promise<void> {
     if (this.saving) return;
     const target = this.settingsTarget();
     const lifecycleSupport = this.pluginLifecycleSupport(target);
@@ -545,17 +616,21 @@ export class SettingsDialog extends LitElement {
       this.pluginError = () => settingsDialogMessages.t("pluginConfigMissing", { target: settingsFeedbackTargetLabel(target) });
       return;
     }
-    const patch = pluginEnabledConfigPatch(this.selectedPluginConfigResponse.config, pluginId, enabled);
+    const path = settingPath("plugins", pluginId, "enabled");
+    if (enforcedSetting(this.selectedPluginConfigResponse, path) !== undefined) return;
+    const update = enabled === undefined
+      ? resetConfigUpdate(this.selectedPluginConfigResponse, [path])
+      : { set: { plugins: { [pluginId]: { enabled } } } };
     this.saving = true;
     this.pluginError = "";
     this.savedMessage = "";
     try {
-      const response = await configApi.saveConfig(patch, target.id);
+      const response = await configApi.updateConfig(update, target.id);
       if (!this.isCurrentSettingsTarget(target)) return;
       this.selectedPluginConfigResponse = response;
       if (target.kind === "local" && this.configResponse !== undefined) {
         this.configResponse = mergeSelectedMachinePluginConfig(this.configResponse, response);
-        this.onConfigSaved?.(this.configResponse.effectiveConfig);
+        this.publishGatewayConfig(this.configResponse);
       }
       let pluginRefreshError: DisplayText | undefined;
       if (isSelectedMachineSettingsUnsupported(lifecycleSupport)) {
@@ -577,21 +652,46 @@ export class SettingsDialog extends LitElement {
     }
   }
 
-  private async saveConfig(config: PiWebConfigValues): Promise<void> {
-    if (this.saving) return;
+  private async saveConfig(config: PiWebConfigValues, unset: string[] = []): Promise<void> {
+    if (this.saving || this.gatewayConfirmationPending) return;
     const section = this.section === "shortcuts" ? "shortcuts" : "general";
-    this.saving = true;
+    this.loadRequestSeq += 1;
+    this.loading = false;
     this.error = "";
     this.savedMessage = "";
     try {
-      const response = await configApi.saveConfig(config);
+      const snapshot = this.configResponse;
+      const update = { ...explicitConfigUpdate(snapshot, config), ...resetConfigUpdate(snapshot, unset) };
+      if (hostAccessChangeBlocksHostname(update, snapshot?.defaultsConfig, this.currentHostname)) {
+        const confirmation = this.renderRoot.querySelector<ConfirmationDialog>("confirmation-dialog");
+        if (confirmation === null) throw new Error("Settings confirmation is unavailable");
+        const hostname = this.currentHostname;
+        // Keep the opener enabled until approval so Cancel can restore focus.
+        // This guard still rejects duplicate submissions while the modal is open.
+        this.gatewayConfirmationPending = true;
+        const accepted = await confirmation.request({
+          title: () => settingsDialogMessages.t("hostAccessConfirmTitle"),
+          message: () => settingsDialogMessages.t("hostAccessConfirmMessage", { hostname }),
+          confirmLabel: () => settingsDialogMessages.t("saveAnyway"),
+          cancelLabel: () => settingsDialogMessages.t("cancelSave"),
+        });
+        // Approval belongs to this write and snapshot, never a refreshed policy
+        // or a settings dialog that has since closed.
+        if (!accepted || !this.isConnected || this.configResponse !== snapshot) return;
+      }
+      this.saving = true;
+      const response = await configApi.updateConfig(update);
       this.configResponse = response;
-      this.onConfigSaved?.(response.effectiveConfig);
-      this.showSavedMessage(() => settingsDialogMessages.t(section === "shortcuts" ? "shortcutsSaved" : "gatewaySaved"), section);
+      this.publishGatewayConfig(response);
+      this.showSavedMessage(() => section === "shortcuts" ? settingsDialogMessages.t("shortcutsSaved")
+        : unset.length === 1 && unset[0] === "/defaultTheme" ? settingsDialogMessages.t("themeSaved")
+        : unset.length === 1 && unset[0] === "/quietMode" ? settingsDialogMessages.t("quietSaved", { enabled: String(response.effectiveConfig.quietMode === true) })
+        : settingsDialogMessages.t("gatewaySaved"), section);
     } catch (error) {
       const diagnostic = errorMessage(error);
       this.error = () => settingsDialogMessages.t("settingsFailure", { error: diagnostic });
     } finally {
+      this.gatewayConfirmationPending = false;
       this.saving = false;
     }
   }
@@ -604,13 +704,7 @@ export class SettingsDialog extends LitElement {
     await this.saveFocusedGatewayConfig({ quietMode }, () => settingsDialogMessages.t("quietSaved", { enabled: String(quietMode) }), "quietFailure");
   }
 
-  /**
-   * Save one gateway setting without disturbing the rest. `PUT /api/config`
-   * replaces the whole config file (unlike the selected-machine endpoint, which
-   * merges a patch), so read a fresh copy instead of reusing the dialog's
-   * snapshot. That read also retires an older Refresh result, so this focused
-   * action cannot lose to a stale reload.
-   */
+  /** PATCH changes supplied settings only; retire older refreshes before saving. */
   private async saveFocusedGatewayConfig(patch: PiWebConfigValues, savedMessage: DisplayText, failure: "themeFailure" | "quietFailure"): Promise<void> {
     if (this.saving) return;
     this.loadRequestSeq += 1;
@@ -619,10 +713,9 @@ export class SettingsDialog extends LitElement {
     this.error = "";
     this.savedMessage = "";
     try {
-      const current = await configApi.config();
-      const response = await configApi.saveConfig({ ...current.config, ...patch });
+      const response = await configApi.updateConfig(explicitConfigUpdate(this.configResponse, patch));
       this.configResponse = response;
-      this.onConfigSaved?.(response.effectiveConfig);
+      this.publishGatewayConfig(response);
       this.showSavedMessage(savedMessage, "general");
     } catch (error) {
       const diagnostic = errorMessage(error);
@@ -632,7 +725,7 @@ export class SettingsDialog extends LitElement {
     }
   }
 
-  private async saveMachineAccessConfig(config: PiWebConfigValues): Promise<void> {
+  private async saveMachineAccessConfig(config: PiWebConfigValues, unset: string[] = []): Promise<void> {
     if (this.saving) return;
     const target = this.settingsTarget();
     this.accessLoadRequestSeq += 1;
@@ -645,7 +738,7 @@ export class SettingsDialog extends LitElement {
     this.accessError = "";
     this.savedMessage = "";
     try {
-      const response = await configApi.saveConfig(config, target.id);
+      const response = await configApi.updateConfig({ ...explicitConfigUpdate(this.accessConfigResponse, config), ...resetConfigUpdate(this.accessConfigResponse, unset) }, target.id);
       // The save belongs to its captured target even if the dialog has moved on.
       // Notify the owner, but never install that response into another target's draft.
       this.onMachineConfigSaved?.(target.id);
@@ -656,7 +749,7 @@ export class SettingsDialog extends LitElement {
         this.loading = false;
         if (this.configResponse !== undefined) {
           this.configResponse = mergeSelectedMachineAccessConfig(this.configResponse, response);
-          this.onConfigSaved?.(this.configResponse.effectiveConfig);
+          this.publishGatewayConfig(this.configResponse);
         }
       }
       if (!this.isCurrentSettingsTarget(target)) return;
@@ -674,22 +767,20 @@ export class SettingsDialog extends LitElement {
     }
   }
 
-  private async saveSessiondConfig(config: PiWebConfigValues): Promise<void> {
+  private async saveSessiondConfig(config: PiWebConfigValues, unset: string[] = []): Promise<void> {
     if (this.saving) return;
     const target = this.settingsTarget();
+    this.sessiondLoadRequestSeq += 1;
+    this.sessiondLoading = false;
     this.saving = true;
     this.sessiondError = "";
     this.savedMessage = "";
     try {
-      const response = await configApi.saveConfig(config, target.id);
+      const response = await configApi.updateConfig({ ...explicitConfigUpdate(this.sessiondConfigResponse, config), ...resetConfigUpdate(this.sessiondConfigResponse, unset) }, target.id);
       if (!this.isCurrentSettingsTarget(target)) return;
       this.sessiondConfigResponse = response;
       if (target.kind === "local" && this.configResponse !== undefined) this.configResponse = mergeSelectedMachineSessiondConfig(this.configResponse, response);
-      const namingOnly = Object.keys(config).length === 1 && config.sessionNaming !== undefined;
-      const message = () => namingOnly
-        ? settingsDialogMessages.t("namingSaved", { name: target.name })
-        : settingsDialogMessages.t("sessiondSaved", { name: target.name, naming: String(config.sessionNaming !== undefined) });
-      this.showSavedMessage(message, "sessiond");
+      this.showSavedMessage(() => settingsDialogMessages.t("sessiondSaved", { name: target.name }), "sessiond");
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
         const diagnostic = errorMessage(error);
@@ -805,10 +896,6 @@ export class SettingsDialog extends LitElement {
     return requestSeq === this.accessLoadRequestSeq && this.isCurrentSettingsTarget(target);
   }
 
-  private isCurrentNamingModelsLoad(requestSeq: number, target: SettingsMachineTarget): boolean {
-    return requestSeq === this.namingModelsLoadRequestSeq && this.isCurrentSettingsTarget(target);
-  }
-
   private isCurrentSessiondLoad(requestSeq: number, target: SettingsMachineTarget): boolean {
     return requestSeq === this.sessiondLoadRequestSeq && this.isCurrentSettingsTarget(target);
   }
@@ -842,10 +929,6 @@ export class SettingsDialog extends LitElement {
   }
 
   private resetSessiondStateForTargetChange(): void {
-    this.namingModelsLoadRequestSeq += 1;
-    this.namingModels = [];
-    this.namingModelsLoading = false;
-    this.namingModelsError = "";
     this.sessiondLoadRequestSeq += 1;
     this.sessiondLoading = false;
     this.sessiondError = "";
@@ -931,37 +1014,4 @@ export class SettingsDialog extends LitElement {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export type SettingsPanelTag =
-  | "settings-general-panel"
-  | "settings-sessiond-panel"
-  | "settings-packages-panel"
-  | "settings-plugins-panel"
-  | "settings-shortcuts-panel"
-  | "settings-mcp-panel";
-
-/**
- * The single custom-element panel the settings dialog renders for a section.
- *
- * This is the public routing contract behind `renderActiveSection`: each section
- * maps to exactly one panel element and nothing else (no per-tab "scope note"
- * wrapper). Tests assert this mapping instead of inspecting the rendered
- * `TemplateResult`'s markup.
- */
-export function activeSettingsPanelTag(section: SettingsSection): SettingsPanelTag {
-  switch (section) {
-    case "sessiond":
-      return "settings-sessiond-panel";
-    case "packages":
-      return "settings-packages-panel";
-    case "plugins":
-      return "settings-plugins-panel";
-    case "shortcuts":
-      return "settings-shortcuts-panel";
-    case "mcp":
-      return "settings-mcp-panel";
-    case "general":
-      return "settings-general-panel";
-  }
 }

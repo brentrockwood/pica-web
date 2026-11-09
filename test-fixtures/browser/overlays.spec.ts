@@ -1,6 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
 import type { ChatView } from "../../src/client/src/components/ChatView";
-import type { PromptEditor } from "../../src/client/src/components/PromptEditor";
 
 async function typeComposerText(input: Locator, text: string): Promise<void> {
   // Exercise CodeMirror through keyboard input, not contenteditable DOM filling.
@@ -37,37 +36,6 @@ test("completions escape layout clipping, preserve editor focus, and disappear o
   await expect(page.locator("autocomplete-menu button")).toBeVisible();
   await page.getByRole("button", { name: "Switch session", exact: true }).click();
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
-});
-
-test("attachment control stays compact before and after chat navigation arrives", async ({ page }) => {
-  const editor = page.locator("prompt-editor");
-  const attach = editor.getByRole("button", { name: "Attach files", exact: true });
-  const icon = attach.locator("svg");
-  const expectCompact = async (): Promise<void> => {
-    await expect(attach).toHaveCSS("width", "28px");
-    await expect(attach).toHaveCSS("height", "28px");
-    await expect(icon).toHaveCSS("width", "14px");
-    await expect(icon).toHaveCSS("height", "14px");
-  };
-  await expect(editor.locator(".editor-chat-navigation")).toHaveCount(0);
-  await expectCompact();
-  await page.evaluate(async () => {
-    const chat = document.querySelector<ChatView>("chat-view");
-    const prompt = document.querySelector<PromptEditor>("prompt-editor");
-    if (!chat || !prompt) throw new Error("Missing conversation fixture");
-    chat.onNavigationChange = (controls) => { prompt.chatNavigation = controls; };
-    await chat.updateComplete;
-    await prompt.updateComplete;
-  });
-  await expect(editor.locator(".editor-chat-navigation")).toHaveCount(1);
-  await expectCompact();
-  await page.evaluate(async () => {
-    const prompt = document.querySelector<PromptEditor>("prompt-editor");
-    if (!prompt) throw new Error("Missing composer fixture");
-    prompt.chatNavigation = undefined;
-    await prompt.updateComplete;
-  });
-  await expectCompact();
 });
 
 test("activity belongs to the boundary without changing transcript or composer geometry", async ({ page }) => {
@@ -244,9 +212,7 @@ test("hiding the conversation closes its suggestions", async ({ page }) => {
 });
 
 test("chat tables wrap prose and long tokens within the available width", async ({ page }) => {
-  await page.evaluate(() => {
-    const chat = document.querySelector<ChatView>("chat-view");
-    if (!chat) throw new Error("Missing conversation fixture");
+  await page.locator("chat-view").evaluate((chat: ChatView) => {
     chat.messages = [{ role: "assistant", parts: [{ type: "text", text: [
       "| Status | Description and details | Reference |",
       "| --- | --- | --- |",

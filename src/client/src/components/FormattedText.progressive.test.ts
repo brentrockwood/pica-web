@@ -35,7 +35,7 @@ function viewport() {
 }
 
 it("paints escaped source before Markdown, renderer inspection, and plugin execution in separate turns", async () => {
-  const format = vi.spyOn(markdown, "toSafeMarkdownHtml");
+  const format = vi.spyOn(markdown, "parseChatMarkdown");
   const draw = vi.fn<ContentRendererContribution["render"]>(() => html`<b>Enhanced</b>`);
   const select = vi.fn(() => [{ id: "test", label: "Test", renderer: { id: "test", renderMode: "automatic" as const, render: draw } }]);
   const view = new FormattedText();
@@ -65,11 +65,15 @@ it("paints escaped source before Markdown, renderer inspection, and plugin execu
 it.each([false, true])("keeps formatted content without a raw tail between streaming updates (previews: %s)", async (previews) => {
   const view = new FormattedText();
   if (previews) view.contentRendering = createContentRenderingService(() => []);
+  const changing = vi.fn();
+  view.addEventListener("content-layout-changing", changing);
   view.text = "A **streaming** paragraph";
   document.body.append(view);
   await settleDeferredContent(view);
   const paragraph = view.renderRoot.querySelector("p");
   expect(paragraph?.textContent).toBe("A streaming paragraph");
+  expect(changing).toHaveBeenCalled();
+  changing.mockClear();
 
   for (const chunk of [" with", " more", " words"]) {
     const previousText = view.renderRoot.querySelector("p")?.textContent;
@@ -79,6 +83,7 @@ it.each([false, true])("keeps formatted content without a raw tail between strea
     expect(view.renderRoot.querySelector<HTMLElement>(".pending-source")?.hidden).toBe(true);
     await settleDeferredContent(view);
   }
+  expect(changing).not.toHaveBeenCalled();
   expect(view.renderRoot.querySelector("p")?.textContent).toBe("A streaming paragraph with more words");
   expect(view.renderRoot.querySelector<HTMLElement>(".pending-source")?.hidden).toBe(true);
 });
@@ -103,7 +108,7 @@ it("falls back to the latest source if formatting a streaming update fails", asy
   view.text = "**Original**";
   document.body.append(view);
   await settleDeferredContent(view);
-  vi.spyOn(markdown, "toSafeMarkdownHtml").mockImplementation(() => { throw new Error("Formatting failed"); });
+  vi.spyOn(markdown, "parseChatMarkdown").mockImplementation(() => { throw new Error("Formatting failed"); });
   const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   view.text += " latest words";
   await settleDeferredContent(view);
@@ -116,7 +121,7 @@ it("falls back to the latest source if formatting a streaming update fails", asy
 
 it("formats only intersecting content and coalesces invisible updates to the latest source", async () => {
   const intersect = viewport();
-  const format = vi.spyOn(markdown, "toSafeMarkdownHtml");
+  const format = vi.spyOn(markdown, "parseChatMarkdown");
   const view = new FormattedText();
   view.text = "**Old**";
   document.body.append(view);
@@ -201,7 +206,7 @@ it.each(["chat", "public"] as const)("resumes %s Markdown after an update comple
 });
 
 it("cancels queued formatting on detach and resumes the latest content on reconnect", async () => {
-  const format = vi.spyOn(markdown, "toSafeMarkdownHtml");
+  const format = vi.spyOn(markdown, "parseChatMarkdown");
   const view = new FormattedText();
   view.text = "**Before**";
   document.body.append(view);
@@ -221,7 +226,7 @@ it("keeps Markdown readable when inspection fails and lets other content finish"
   const inspect = vi.fn(() => { throw new Error("Plugin inspection failed"); });
   const first = new FormattedText();
   first.text = "**First**";
-  first.contentRendering = { renderMarkdown: inspect };
+  first.contentRendering = { ...createContentRenderingService(() => []), renderMarkdown: inspect };
   const second = new FormattedText();
   second.text = "**Second**";
   document.body.append(first, second);
@@ -233,7 +238,7 @@ it("keeps Markdown readable when inspection fails and lets other content finish"
 });
 
 it("does not prepare Markdown inside closed composed disclosures", async () => {
-  const format = vi.spyOn(markdown, "toSafeMarkdownHtml");
+  const format = vi.spyOn(markdown, "parseChatMarkdown");
   const group = document.createElement("details");
   const bridge = document.createElement("div");
   const view = new FormattedText();

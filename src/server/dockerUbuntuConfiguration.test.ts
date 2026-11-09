@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, realpath, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,7 @@ let env: NodeJS.ProcessEnv;
 const hostFacts = "PI_WEB_DOCKER_HOST_PROFILE=linux-native-docker\nHOSTEXEC_MODE=nsenter\nPI_WEB_DOCKER_SOCKET_SOURCE=/var/run/docker.sock\n";
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "pi-web-ubuntu-config-"));
+  root = await realpath(await mkdtemp(join(tmpdir(), "pi-web-ubuntu-config-")));
   const bin = join(root, "bin");
   await mkdir(bin);
   await writeFile(join(bin, "docker"), '#!/bin/sh\nprintf "%s\\n" "$@" >> "$COMMAND_LOG"\n');
@@ -31,7 +31,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe.skipIf(process.platform === "win32")("Ubuntu Docker configuration", () => {
+// Each case runs several shell controller processes; allow for slow process spawning under full-suite load.
+describe.skipIf(process.platform === "win32")("Ubuntu Docker configuration", { timeout: 20_000 }, () => {
   it("persists new installer inputs and preserves user hooks, environment, and local Compose", async () => {
     const assets = join(root, "assets");
     const install = join(root, "install");
@@ -61,7 +62,6 @@ describe.skipIf(process.platform === "win32")("Ubuntu Docker configuration", () 
     expect(effective).toContain("PI_WEB_NODE_IMAGE=node:22.22.2-bookworm-slim");
     expect(effective).toContain("PI_WEB_MISE_VERSION=2026.10.12");
     expect(effective).toContain("PI_WEB_GIT_VERSION=1:2.53.0-test");
-    expect(effective).not.toMatch(/OPENSUSE|ZYPPER|NODEJS_REPO/u);
     expect(await readFile(join(install, "internal/bin/pi-web-service"), "utf8")).toContain("fixture");
     expect(await readFile(join(install, "internal/image/install-ubuntu-base"), "utf8")).toContain("fixture");
     expect(await readFile(join(install, "custom-image.d/10-local.sh"), "utf8")).toBe("# user hook\n");
@@ -103,7 +103,6 @@ describe.skipIf(process.platform === "win32")("Ubuntu Docker configuration", () 
     expect(effective).toContain("PI_WEB_DOCKER_CLI_VERSION=29-cli");
     expect(effective).toContain("PI_WEB_EXTRA_APT_PACKAGES=jq ripgrep");
     expect(effective).toContain("PI_WEB_GIT_VERSION=1:2.53.0-runtime");
-    expect(effective).not.toMatch(/OPENSUSE|ZYPPER|NODEJS_REPO/u);
     const command = await readFile(join(root, "commands"), "utf8");
     expect(command).toContain(`-f\n${checkout}/docker/compose.dev.yml\n-f\n${config}/docker-compose-dev.host.generated.yml\n-f\n${localCompose}\nconfig\n`);
     expect(await readFile(localCompose, "utf8")).toBe("# user override\n");

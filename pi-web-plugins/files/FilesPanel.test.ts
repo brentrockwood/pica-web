@@ -2,8 +2,11 @@
 
 import type { StylesheetIntegrationCapabilityV1, FileContentResponse, FileTreeResponse, WorkspaceFilesCapabilityV1, WorkspacePanelContext, WorkspacePanelNavigationV1, WriteWorkspaceFileResponse } from "@jmfederico/pi-web/plugin-api";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { html } from "lit";
 import { WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./FilesPanel";
 import { filesLocalizationFixture } from "./filesLocalization.testSupport";
+import { WorkspaceFileViewer } from "./FilesViewer";
+import type { FileIcon } from "./FileIcon";
 import { FilesRuntime, type WorkspaceUploadBatchState } from "./FilesRuntime";
 import { defineFilesCustomElements } from "./pi-web-plugin";
 
@@ -12,10 +15,61 @@ defineFilesCustomElements();
 afterEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
+  sessionStorage.clear();
   vi.restoreAllMocks();
 });
 
 describe("Files panel component boundary", () => {
+  it("updates file icons live without replacing rows or directory disclosures and releases subscriptions", async () => {
+    const panel = await mountPanel(createContext({ files: createFiles({ listFiles: () => Promise.resolve(treeResponse("", [
+      { name: "src", path: "src", type: "directory" },
+      { name: "README.md", path: "README.md", type: "file" },
+    ])) }) }));
+    await vi.waitFor(() => { expect(panel.shadowRoot?.querySelector("pi-web-files-icon")).not.toBeNull(); });
+    let url = "https://icons.example/markdown.svg";
+    const listeners = new Set<() => void>();
+    const release = vi.fn();
+    const subscribe = vi.fn((listener: () => void) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); release(); };
+    });
+    panel.fileIcons = { resolveIcon: () => url, subscribe };
+    await panel.updateComplete;
+    const row = buttonWithText(panel.shadowRoot, "README.md");
+    const icon = requiredElement(row.querySelector<FileIcon>("pi-web-files-icon"), "file icon");
+    expect(icon.url).toBe(url);
+    expect(row.querySelector(".ui-file-leading")?.getAttribute("aria-hidden")).toBe("true");
+    expect(buttonWithText(panel.shadowRoot, "src").getAttribute("aria-expanded")).toBe("false");
+    expect(buttonWithText(panel.shadowRoot, "src").querySelector("pi-web-files-icon")).toBeNull();
+    url = "https://icons.example/markdown-light.svg";
+    for (const listener of listeners) listener();
+    await panel.updateComplete;
+    expect(buttonWithText(panel.shadowRoot, "README.md")).toBe(row);
+    expect(icon.url).toBe(url);
+    panel.remove();
+    expect(listeners.size).toBe(0);
+    expect(release).toHaveBeenCalledOnce();
+    document.body.append(panel);
+    await panel.updateComplete;
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    panel.fileIcons = undefined;
+    await panel.updateComplete;
+    expect(listeners.size).toBe(0);
+    expect(release).toHaveBeenCalledTimes(2);
+    expect(icon.url).toBeUndefined();
+  });
+
+  it("passes file previewing and the workspace's files helpers to its viewer", async () => {
+    const context = createContext();
+    const panel = await mountPanel(context);
+    const capability = { listPreviewers: vi.fn(() => []), renderPreview: vi.fn(() => undefined) };
+    panel.filePreviewing = capability;
+    await panel.updateComplete;
+    const viewer = panel.renderRoot.querySelector<WorkspaceFileViewer>("pi-web-files-viewer");
+    expect(viewer?.filePreviewing).toBe(capability);
+    expect(viewer?.files).toBe(context.files);
+  });
+
   it("retranslates an open upload review without changing focus, paths, options or starting an upload", async () => {
     const { service, content } = filesLocalizationFixture("de-DE");
     const uploadFile = vi.fn<WorkspaceFilesCapabilityV1["uploadFile"]>();
@@ -138,11 +192,158 @@ describe("Files panel component boundary", () => {
     expect(readFile.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("reveals a nested link once without moving focus, then preserves manual collapse on reconnect", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+      requiredElement(this.closest<HTMLElement>(".list.tree"), "tree list").scrollTop = 143;
+    });
+    const context = nestedContext();
+    const runtime = new FilesRuntime();
+    const acknowledge = vi.spyOn(runtime, "acknowledgeReveal");
+    const panel = await mountPanel(context, runtime);
+    const upload = buttonWithText(panel.shadowRoot, "Upload");
+    upload.focus();
+    const linked = { ...context, navigation: createNavigation({ file: "src/deep/main.ts" }) };
+    await runtime.invalidate(linked);
+    await panel.updateComplete;
+    await vi.waitFor(() => { expect(scrollIntoView).toHaveBeenCalledOnce(); });
+    const row = buttonWithText(panel.shadowRoot, "main.ts");
+    expect(scrollIntoView.mock.instances[0]).toBe(row);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    expect(acknowledge).toHaveBeenCalledExactlyOnceWith(linked, expect.any(Number), 143);
+    expect(panel.shadowRoot?.activeElement).toBe(upload);
+    panel.requestUpdate();
+    await panel.updateComplete;
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+
+    buttonWithText(panel.shadowRoot, "src").click();
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector('[title="src/deep/main.ts"]')).toBeNull();
+    panel.remove();
+    document.body.append(panel);
+    await panel.updateComplete;
+    await vi.waitFor(() => { expect(runtime.snapshot(linked).treeLoading).toBe(false); });
+    expect(buttonWithText(panel.shadowRoot, "src").getAttribute("aria-expanded")).toBe("false");
+    expect(panel.shadowRoot?.querySelector('[title="src/deep/main.ts"]')).toBeNull();
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+  });
+
+  it("shows expansion intent before the directory listing has loaded", async () => {
+    let finishDirectory: (value: FileTreeResponse) => void = () => undefined;
+    const context = createContext({ files: createFiles({ listFiles: (path) => path === ""
+      ? Promise.resolve(treeResponse("", [{ name: "src", path: "src", type: "directory" }]))
+      : new Promise((resolve) => { finishDirectory = resolve; }) }) });
+    const panel = await mountPanel(context);
+    await vi.waitFor(() => { expect(buttonWithText(panel.shadowRoot, "src")).toBeDefined(); });
+    buttonWithText(panel.shadowRoot, "src").click();
+    await panel.updateComplete;
+    expect(buttonWithText(panel.shadowRoot, "src").getAttribute("aria-expanded")).toBe("true");
+    expect(panel.shadowRoot?.querySelectorAll(".row")).toHaveLength(1);
+    finishDirectory(treeResponse("src", [{ name: "main.ts", path: "src/main.ts", type: "file" }]));
+    await vi.waitFor(() => { expect(buttonWithText(panel.shadowRoot, "main.ts")).toBeDefined(); });
+  });
+
+  it("does not overwrite remembered scroll when disconnected before restoration", async () => {
+    const context = createContext({ files: createFiles({ listFiles: () => new Promise(() => undefined) }) });
+    const runtime = new FilesRuntime();
+    runtime.rememberScroll(context, 280);
+    const panel = await mountPanel(context, runtime);
+    const list = requiredElement(panel.shadowRoot?.querySelector<HTMLElement>(".list.tree"), "tree list");
+    list.scrollTop = 0;
+    list.dispatchEvent(new Event("scroll"));
+    panel.remove();
+    expect(runtime.snapshot(context).scrollTop).toBe(280);
+  });
+
+  it("opens tree clicks in place without issuing a reveal", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
+    const context = nestedContext();
+    const panel = await mountPanel(context);
+    await vi.waitFor(() => { expect(buttonWithText(panel.shadowRoot, "README.md")).toBeDefined(); });
+    buttonWithText(panel.shadowRoot, "README.md").click();
+    await panel.updateComplete;
+    expect(buttonWithText(panel.shadowRoot, "README.md").getAttribute("aria-current")).toBe("page");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("remembers scroll events and restores on reconnect without reapplying it on updates", async () => {
+    const context = nestedContext();
+    const runtime = new FilesRuntime();
+    const panel = await mountPanel(context, runtime);
+    await vi.waitFor(() => { expect(runtime.snapshot(context).treeLoading).toBe(false); });
+    await panel.updateComplete;
+    const list = requiredElement(panel.shadowRoot?.querySelector<HTMLElement>(".list.tree"), "tree list");
+    list.scrollTop = 215;
+    list.dispatchEvent(new Event("scroll"));
+    expect(runtime.snapshot(context).scrollTop).toBe(215);
+    // Real browsers expose zero scroll geometry as soon as the host detaches.
+    let visibleScrollTop = 215;
+    Object.defineProperty(list, "scrollTop", {
+      configurable: true,
+      get: () => panel.isConnected ? visibleScrollTop : 0,
+      set: (value: number) => { visibleScrollTop = value; },
+    });
+    panel.remove();
+    list.dispatchEvent(new Event("scroll"));
+    expect(runtime.snapshot(context).scrollTop).toBe(215);
+    list.scrollTop = 0;
+    document.body.append(panel);
+    await panel.updateComplete;
+    await vi.waitFor(() => { expect(list.scrollTop).toBe(215); });
+    list.scrollTop = 180;
+    panel.requestUpdate();
+    await panel.updateComplete;
+    expect(list.scrollTop).toBe(180);
+  });
+
+  it("preserves the previous workspace's scroll before reusing the list and waits for the new tree", async () => {
+    const first = nestedContext();
+    let finishTree: (value: FileTreeResponse) => void = () => undefined;
+    const second = { ...createContext({ files: createFiles({ listFiles: () => new Promise((resolve) => { finishTree = resolve; }) }) }), workspace: { ...first.workspace, id: "workspace-2" } };
+    const runtime = new FilesRuntime();
+    runtime.rememberScroll(second, 340);
+    const panel = await mountPanel(first, runtime);
+    await vi.waitFor(() => { expect(runtime.snapshot(first).treeLoading).toBe(false); });
+    await panel.updateComplete;
+    const list = requiredElement(panel.shadowRoot?.querySelector<HTMLElement>(".list.tree"), "tree list");
+    list.scrollTop = 125; // No scroll event: switching must capture the outgoing DOM.
+    panel.context = second;
+    await panel.updateComplete;
+    expect(runtime.snapshot(first).scrollTop).toBe(125);
+    list.scrollTop = 0;
+    list.dispatchEvent(new Event("scroll"));
+    expect(runtime.snapshot(second).scrollTop).toBe(340);
+    finishTree(treeResponse("", [{ name: "other.ts", path: "other.ts", type: "file" }]));
+    await vi.waitFor(() => { expect(list.scrollTop).toBe(340); });
+    panel.context = first;
+    await panel.updateComplete;
+    await vi.waitFor(() => { expect(list.scrollTop).toBe(125); });
+  });
+
+  it("leaves hidden reveals pending until responsive visibility returns", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
+    const context = nestedContext();
+    const runtime = new FilesRuntime();
+    const panel = await mountPanel(context, runtime);
+    Object.defineProperty(panel, "getClientRects", { configurable: true, value: () => [] });
+    await runtime.selectFile(context, "src/deep/main.ts", "reveal");
+    await panel.updateComplete;
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(runtime.snapshot(context).revealRequest).toBeDefined();
+    Object.defineProperty(panel, "getClientRects", { configurable: true, value: visibleClientRects });
+    window.dispatchEvent(new Event("resize"));
+    await vi.waitFor(() => { expect(scrollIntoView).toHaveBeenCalledOnce(); });
+    expect(runtime.snapshot(context).revealRequest).toBeUndefined();
+  });
+
   it("adopts query-only back and forward contexts delivered through invalidation", async () => {
     const files = createFiles({ readFile: (path) => Promise.resolve({ ...fileResponse(path), mediaType: "markdown" }) });
     const first = createContext({ files, navigation: createNavigation({ file: "a.md", mode: "raw" }) });
     const runtime = new FilesRuntime();
     const panel = await mountPanel(first, runtime);
+    panel.filePreviewing = {
+      listPreviewers: () => [{ id: "fixture:markdown", label: "Preview", renderMode: "manual" }],
+      renderPreview: () => html`<p>Markdown fixture</p>`,
+    };
     await vi.waitFor(() => {
       const viewer = requiredElement(panel.shadowRoot?.querySelector<HTMLElement>("pi-web-files-viewer"), "Files viewer");
       expect(buttonWithText(viewer.shadowRoot, "Raw").getAttribute("aria-pressed")).toBe("true");
@@ -379,6 +580,16 @@ async function mountPanel(context: WorkspacePanelContext, runtime = new FilesRun
   document.body.append(panel);
   await panel.updateComplete;
   return panel;
+}
+
+function nestedContext(): WorkspacePanelContext {
+  return createContext({ files: createFiles({
+    readFile: (path) => Promise.resolve({ ...fileResponse(path), binary: true, content: "" }),
+    listFiles: (path) => Promise.resolve(treeResponse(path, path === ""
+    ? [{ name: "src", path: "src", type: "directory" }, { name: "README.md", path: "README.md", type: "file" }]
+    : path === "src"
+      ? [{ name: "deep", path: "src/deep", type: "directory" }]
+      : [{ name: "main.ts", path: "src/deep/main.ts", type: "file" }])) }) });
 }
 
 interface ContextOptions {

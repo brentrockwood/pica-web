@@ -1,5 +1,115 @@
 # @jmfederico/pi-web
 
+## 1.202611.1
+
+### Patch Changes
+
+- 5a8181c: Add one `hostAccess` policy for production and development: restrict access to local addresses and listed hostnames, or explicitly allow any hostname. Configure it in General settings or with `PI_WEB_HOST_ACCESS`. A persistent notice prompts new and existing installations to choose; until then, production hostname restrictions remain off and development retains its legacy `allowedHosts` behavior. Allowing any hostname or leaving the decision unresolved lacks application-level DNS-rebinding protection.
+
+  Reject malformed Host headers and cross-origin browser mutations and WebSocket upgrades regardless of hostname policy. These checks do not replace authentication or restricted backend access.
+
+  **Upgrade guidance:** Reverse proxies must preserve public Host (including nonstandard ports) and browser Origin unchanged. Restart web/API and the development UI server, if running, after changing the policy; no session-daemon restart is needed for this change. See [browser request security](https://pi-web.dev/config#browser-request-security) for configuration, proxy requirements, and restart details.
+- 3806bbd: Keep a session's **Needs input** state and its open question form in step. Both now close when the conversation continues, including a message sent before the question that is delivered after it. Passive entries, such as extension notices or shell output, leave both open.
+- 569f070: Clarify agent guidance to separate user actions from questions and approvals, and keep intervention requests short with detailed instructions in chat.
+- 028ec93: Ask for confirmation before saving or resetting a hostname policy in Settings that would block the current browser hostname after restart. Cancel preserves the draft; Save anyway keeps the requested policy unchanged.
+- b1e4ca0: Make automatic model availability explicit in the model picker's All models view, keeping the Enabled view focused on choosing a model. Enabling all current and future models clears the saved manual selection and disables individual availability controls. Turning it off starts a new manual selection containing every currently available model; newly discovered models stay disabled. Catalog refreshes preserve the saved manual selection, even when it includes every current model, instead of silently enabling newly discovered models.
+- 5edf6bf: Style the Allowed hostnames select as a form field, consistent with the other settings inputs.
+- d6d1159: Keep a federated machine's language pack on that machine. Its translations no longer change the interface language while another machine is selected. Gateway language packs still apply on every machine.
+- 4460f0c: Support Pi installed with the managed installer (`pi.dev/install.sh`). PI WEB now finds that Pi's SDK from the `pi` command on `PATH`. Services installed with `/pi-web install` from a managed Pi keep working after `pi update`, because they follow the install's current version instead of one release. Installation preflight verifies any explicit Pi selection retained for services and reports specific failures before changing configuration or services. Services installed earlier from a managed Pi need `/pi-web install` again.
+- 52bc7ad: Give system messages a consistent, readable chat presentation. Show sender attribution once for new session messages using structured sender and body information, while preserving existing messages and agent-facing history.
+- Update HTTP, static-file, and URI parsing dependencies to address reported security vulnerabilities without changing the supported Node.js requirement.
+- Keep bundled Relay and scheduled task tools compatible with Pi 1.5 by using Pi-provided TypeBox schema imports.
+- a756302: Combine browser errors, server notices, and session notifications in one pinned notification area, including when no session is selected. Keep the header compact with severity icons and counts in both expanded and collapsed states, with full labels for screen readers. Show notification sources, preserve each item's dismissal and retry behavior, and reopen collapsed notifications for new errors without moving keyboard focus. Persistent session conditions remain in the Notices tab. Keep short notification messages visible on small screens instead of letting the transcript squeeze the list out of view.
+- 31539bd: Acknowledge question answers and skips without waiting for the agent to finish working, preventing misleading remote-machine timeout errors during long runs.
+- c95aef4: Add a Restart action that confirms the selected services and runs the existing restart command in the gateway's maintenance terminal. Show a simple activity warning for daemon restarts, and link hostname-policy notices to web restart confirmation. Only offer per-service restarts when a targeted command is available; never substitute a full restart.
+- 5f3c99e: Open a session from a link that contains only its ID, such as `?session=${PI_SESSION_ID}`. PI WEB finds the machine, project, and workspace that list the session and redirects to its full link.
+- 74e4d5a: Add `archive_self` so agents can end their run and request archival of their own session once idle, preserving its transcript. New conversation work cancels the request. Archival conditions stay in user instructions, including for scheduled tasks; the scheduler does not infer when to archive.
+- 5fb2259: Let plugins extend Markdown syntax across chat and Files previews, with host-owned sanitization and rendering that supports streaming. Add a shared Markdown rendering capability for plugin views.
+- fb81d25: Keep assistant message menus in the same corner layout inside event groups and ordinary replies, without an empty menu-only row. Show expanded message metadata below its content.
+- e42938f: Limit community plugin listings to packages with the project-specific `pi-web.dev-plugin` npm keyword. Plugin authors must include this keyword to appear in listings; the broader `pi-web-plugin` tag is no longer used for discovery.
+- 2d18142: Fix Sign in with ChatGPT from the web UI by supplying Pi's persistent installation device ID during OAuth login.
+- a21b7e6: Keep chat streaming when switching projects or workspaces, and let Refresh messages restore an abandoned session connection without reloading the page.
+- b000bbb: Let themes contribute loading-screen colours that appear before JavaScript runs, following the gateway's delivered default theme rather than a browser-local theme preference. Replace the pulsing logo glow with a small sweeping activity line, respecting reduced-motion preferences. Keep the development logo and activity line purple when themes contribute colours.
+- 7b4cff9: Allow subsession lifecycle notices to wake an idle parent after Stop or an earlier error. Retry notices missing from the conversation up to three times with backoff, without replaying notices already inserted or retrying agent failures. Show delivery errors when retries are exhausted and retain unread notices for later recovery.
+- 3aa6cdb: Keep the session activity indicator on "running tool" while a tool streams output, rather than showing an internal event name. Preserve the current activity when entries are added during a turn.
+
+## 1.202611.0
+
+### Patch Changes
+
+- 8646931: Include request-correlated transport errors in session daemon logs so oversized channel rejections can be distinguished from unrelated disconnects.
+- 84a3287: Add actions to copy session, workspace, project, and machine IDs from their menus without displaying the IDs.
+- 0ec82b5: Add plugin renderers for transcript tools and displayed custom messages, with tool resolver chaining for delegation, replacement, and wrapping. Custom messages use the first matching renderer. Keep the existing view as fallback and provide a default-view control.
+- 5b0f00b: Show a static “Needs input” indicator when a session needs the user's attention to a request, including plain-text questions, structured forms, and extension dialogs. Clear agent-requested intervention when any new run starts, and retain it across restarts. Show the agent's request in the transcript as an “Input requested” card instead of inside collapsed tool activity.
+- d982b52: Automatically restore missing macOS terminal helper execute permissions during terminal checks and creation, preventing failures after reinstalling or updating.
+- ad06af3: Move automatic session naming into a removable bundled Pi package, usable in both PI WEB and the TUI. Remove the package to use another naming extension. Migrate naming tuning into package-owned configuration and remove the old writable core key. Core configuration APIs reject the retired setting. Migration failures log errors, retain source data, and allow startup to continue. Update the web UI when extensions rename sessions.
+- 6e82a8d: Keep plain-text code blocks and files in raw view without unnecessary Highlighted/Raw controls.
+- f91fcb4: Keep routine workspace plugin requests, including terminal badge updates, from repeatedly launching Git discovery and stalling the session daemon. Refresh workspace records through discovery and change notifications while retaining fresh validation before workspace deletion.
+- 7ebaf86: Keep the reading position steady when scrolling upward into long code blocks that finish rendering as they enter view.
+- 4ac2158: Coordinate chat scrolling through one viewport owner so consecutive history prepends preserve the original reading position and queued scrolling respects user navigation. Keep saved positions and disclosure choices separate between machines, while preserving existing local state.
+
+## 1.202610.9
+
+### Patch Changes
+
+- a2d4c60: Move Dismiss into closed extension-dialog headers and hide text-input answers by default, with an eye icon to reveal or hide them.
+- 33f6a57: Show machine names without URLs consistently in PWA and browser headers, and keep the machine logo visible in the mobile machine picker. URLs remain available in tooltips and machine details.
+- 0dc78b3: Require confirmation of scheduled task definitions before creation or updates, and keep task prompts faithful to the user's request without adding execution plans or unrequested files.
+- 447d64b: Add an agent action to permanently delete archived scheduled tasks and all their definition and execution history, while preserving existing conversations.
+- 7fb972c: Add an optional, disabled-by-default scheduled agent tasks package (beta) with conversation-based task management, a persistent execution ledger, background conversation dispatch, and a read-only dashboard with execution history, conversation links, and collapsed disclosures for current task prompts and saved run instructions.
+- 63a7360: Redesign the scheduled tasks dashboard around problems needing attention, reported results, and upcoming work. Keep list rows focused on linked titles, status, and time. Open task history and technical details only when needed, with full reports collapsed by default and warnings and text links to conversations inside task details.
+- 4473955: Summarize cleanup rules and protections in a compact icon-led list, with a warning when pinned sessions are included. Clarify that preview counts are estimates and eligible sessions are rechecked when cleanup runs.
+- 14c0848: Keep autocomplete suggestions anchored above the editor when the iOS keyboard is open.
+- 68b1c83: Open the native attachment chooser directly on non-Android and unknown devices, including iPhone, iPad, and touch-enabled Windows machines. Keep Photos, Camera, and Files shortcuts on Android so its photo gallery remains accessible.
+- 2f3f7fa: Add locally bundled Material file-type shapes to Files and Git in a single muted tone that follows the active colour theme. Select file icon themes independently of colour themes in Settings, and let plugins contribute additional icon sets. Git preserves status labels and uses filename colours to distinguish changes without tinting the icons.
+- ec64552: Expose session pin, unpin, archive, restore, and archived-session deletion to browser and server plugins using explicit session identities. Pins protect cleanup without blocking deliberate plugin commands. Expose creation, modification, archive timestamps, and pin state through session discovery so plugins can implement their own age filters and cleanup policies without a cleanup-specific API. These metadata fields are always present; unknown dates are explicitly `null`.
+
+  Use the same native lifecycle guards for core cleanup and explicit plugin archive/delete commands.
+
+  Move session pins to daemon-owned storage, preserving existing pins. Upgrade/restart the web/API process before restarting the session daemon; do not leave an older web/API process writing pins after the migration. Session-daemon restarts interrupt active sessions and terminals.
+- 931253d: Avoid flashing the worktree list on mobile for single-worktree projects, and open Sessions without waiting for its contents to finish loading.
+- bc290f2: Open the restored session's chat instead of the previously selected chat when restoring from the session list. Keep the list open if restoration fails or becomes stale.
+- 7a6cb1d: Use the bottom safe area for vertically centred session statistics while keeping model and send controls above it.
+- 05eb410: Allow scheduled agent tasks to select an optional model and thinking level. Use current session defaults when omitted, and record a visible notice when unavailable settings require a fallback before execution starts.
+- Keep server plugin thinking-level declarations self-contained so plugin consumers do not need to resolve an internal Pi SDK dependency.
+- 7a20ba5: Let agents stop, resume, and archive their tracked children through a single `manage_subsession` tool, and send messages to other sessions in the same project without creating a parent/child relationship. Session messaging is enabled by default and can be disabled independently with `sessionMessages` or `PI_WEB_SESSION_MESSAGES`. Children receive their parent’s session ID, and messages identify the sending session so recipients can reply without guessing identities. Automatic child notifications report idle or error state without forwarding final output or claiming the task is complete; agents can coordinate through messages or explicitly inspect a child’s output. Stop interrupts the current run without preventing later messages from starting another turn. Restart the session daemon after updating to enable the new tools.
+- 9592313: Deliver session messages as steering and child lifecycle notices at safe turn boundaries so active agents can coordinate without waiting for their runs to finish.
+- 95d67d5: Move persistent session warnings out of Chat into a Notices panel with a count and normal pin/hide preferences. The panel is available while warnings exist; immediate event notifications remain in Chat.
+- 762bbfd: Update `pi-web install --dev` to use a supervised UI service group so a failed web or client process stops its sibling instead of leaving a partially running installation. Existing native development installations can adopt this by running `pi-web install --dev` from the updated checkout, retaining their existing `--config` option when applicable. Reinstalling services interrupts active sessions and terminals.
+- 49459c0: Add a default-on option to skip pinned sessions during cleanup. Separate cleanup into rules and review steps with a single primary action on each, placing the run action after the proposal and selected totals in the scrolling review. Improve project selection, mobile layout, and preview safety, including preventing repeat execution of completed previews.
+- 95d67d5: Prevent browser-driven chat scroll jumps by disabling native scroll anchoring while retaining the app's anchoring when older messages load.
+- 0b39515: Deliver the default theme with the initial page so the app opens with its palette ready. Load other themes on demand, cache their assets, and retain a usable palette if loading fails. General settings load the full theme inventory with a retry option. Show a pulsing startup logo, static for reduced motion, with teal branding for stable instances and purple for development instances.
+
+  Support declarative CSS-only theme packages without browser JavaScript or a server module. Existing theme IDs, saved preferences, and configuration precedence are preserved; legacy runtime themes remain supported but are deprecated.
+- 95d67d5: Add supported styling hooks for conversation messages, renderer and completion choices, composer controls, navigation rows, and popup menus. Themes can distinguish current, unread, activity, selection, and submission states without changing layout or control behavior. Highlight the composer's default action only when its shortcut is valid and submission is available.
+
+## 1.202610.8
+
+### Patch Changes
+
+- ac2c9b4: Return to Chat when collapsing the desktop workspace pane after selecting a tool, instead of expanding the tool into the conversation area. Preserve the selected tool for reopening.
+- 3b6e0e6: Keep Reload before Actions in both desktop and mobile layouts.
+- 5e6af1f: Reveal the selected file in the Files tree after reloads and file navigation. Preserve expanded folders, deliberate collapses, and tree scroll position when returning to Files, including after interrupted directory loads.
+- 9b558dd: Make Git list and tree views easier to scan with status-coloured icons and markers, explicit conflict labels, and staged/unstaged hints.
+- 574e915: Add optional read-only deployment defaults through `PI_WEB_DEFAULTS_CONFIG`, environment enforcement for core settings, and resettable saved overrides with source indicators in Settings. Enforce only supplied fields in supported configuration containers, preserve project path additions, and retain browser theme/localization choices while policy temporarily overrides them.
+
+  **Upgrade notice — configuration compatibility:**
+
+  - Boolean environment values must now be `true`/`false` (case-insensitive) or `1`/`0`. Replace arbitrary strings and empty values, or unset the variable; invalid values now fail startup. This includes `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, `PI_WEB_ASK_USER`, and `PI_WEB_ENVIRONMENT_FACTS`.
+  - `PI_WEB_OFFLINE`, `PI_OFFLINE`, `PI_WEB_SKIP_VERSION_CHECK`, and `PI_SKIP_VERSION_CHECK` now use those boolean values instead of treating every nonempty string as enabled. In particular, `false` and `0` now disable the corresponding flag and may re-enable networking; use `true` or `1` to preserve an intentionally enabled flag.
+  - Previously ignored unknown fields in `pathAccess`, `uploads`, and `attachments` are now rejected, including in project config. Remove unsupported fields or correct misspellings. Plugin-owned keys inside `settings` remain supported.
+  - Environment-controlled settings are now read-only in Settings/API. Unset the controlling variable to allow saved overrides to change.
+  - `extensionDialogsTimeoutMs` must not exceed `2147483647` milliseconds; use `0` to wait indefinitely.
+  - Existing config paths and supported setting names remain valid. Legacy comma-separated allowed hosts, project path additions, project plugin setting overrides, and empty upload/attachment container inheritance are preserved. No automatic config or data migration is required.
+
+  Keep deployment defaults separate from writable `PI_WEB_CONFIG`. Apply deployment environment settings to both services. Upgrade federated peers before relying on their enforcement metadata.
+- 4d22289: Add audio playback in Files and let browser plugins contribute previewers for additional text and binary formats. Keep built-in previews, downloads, and text-file Raw views available; isolate preview failures and cancel obsolete work when switching files or views. Remove the redundant Original view for binary files.
+- 9f6500f: Allow refreshed plugin UI builds to use the running backend during development without changing plugins. Keep exact browser/backend revision pairing by default outside the development launcher, and retain update-pending diagnostics when a daemon restart is needed.
+- 5256056: Remove the optional Workspace Reviews example from the package. Keep the minimal workspace-provider example as the standalone plugin starting point.
+- 4d22289: Add scoped plugin resource URLs for streaming generated documents, media, and other binary data through PI WEB, including remote machines and plugin-managed range responses. Plugins can provide bytes from their companion backend without exposing a separate HTTP port.
+- c03b09d: Make toolbar bottom separators consistent across panels, including Files and Git.
+- b480c21: Describe failed session daemon version checks without declaring the service down or recommending a restart. Retry automatically while the version is unknown, and stop replaying cached failed checks after the daemon recovers.
+
 ## 1.202610.7
 
 ### Patch Changes

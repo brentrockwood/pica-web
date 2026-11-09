@@ -8,6 +8,7 @@ import { comparePackageVersions, getPiWebRuntime, getPiWebStatus, getPiWebVersio
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { piWebRuntimeIdentity } from "../shared/piWebRuntime.js";
 import type { PiWebRuntimeComponent } from "../shared/apiTypes.js";
+import { WEB_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
 
 const originalSkipVersionCheck = process.env["PI_WEB_SKIP_VERSION_CHECK"];
 const originalHome = process.env["HOME"];
@@ -160,7 +161,7 @@ describe("PI WEB status", () => {
 
     const runtime = await getPiWebRuntime(daemon);
 
-    expect(runtime.components.web.capabilities).toEqual(["plugins.lifecycle"]);
+    expect(runtime.components.web.capabilities).toEqual([...WEB_RUNTIME_CAPABILITIES]);
     expect(runtime.components.sessiond.capabilities).toEqual([]);
     expect(runtime.capabilities).toEqual(["plugins.lifecycle"]);
   });
@@ -233,7 +234,7 @@ describe("PI WEB status", () => {
     });
 
     expect(runtime.components.web.available).toBe(true);
-    expect(runtime.components.web.capabilities).toEqual(["plugins.lifecycle"]);
+    expect(runtime.components.web.capabilities).toEqual([...WEB_RUNTIME_CAPABILITIES]);
     expect(runtime.components.web.runtimeVersion).toBeDefined();
     expect(runtime.components.web).not.toHaveProperty("deprecatedAgentInputs");
     expect(runtime.components.web.error).toContain("Could not check for deprecated agent configuration inputs");
@@ -304,7 +305,9 @@ describe("PI WEB status", () => {
 
       expect(status.components.sessiond.available).toBe(false);
       expect(status.components.sessiond.error).toBe("runtime check returned HTTP 500");
-      expect(status.messages.map((message) => message.id)).toContain("sessiond-unavailable");
+      const notice = status.messages.find((message) => message.id === "sessiond-unavailable");
+      expect(notice).toMatchObject({ severity: "info", title: "Session daemon version unknown" });
+      expect(notice?.body).toContain("The last check could not determine the session daemon version.");
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -431,6 +434,34 @@ describe("PI WEB status", () => {
       expect(status.commands.restartWeb).toBe("systemd-run --user --collect --unit=pi-web-restart-web -- systemctl --user restart pi-web-ui-dev.service");
       expect(status.commands.restartSessiond).toBe("systemd-run --user --collect --unit=pi-web-restart-sessiond -- systemctl --user restart pi-web-sessiond.service");
       expect(status.messages.find((message) => message.id === "sessiond-stale")?.command).toBe("systemd-run --user --collect --unit=pi-web-restart-sessiond -- systemctl --user restart pi-web-sessiond.service");
+    } finally {
+      await Promise.all([
+        rm(home, { recursive: true, force: true }),
+        rm(binDir, { recursive: true, force: true }),
+      ]);
+    }
+  });
+
+  it("does not offer a broad CLI restart as a per-component command", async () => {
+    process.env["PI_WEB_SKIP_VERSION_CHECK"] = "1";
+    disableDockerRuntimeEnv();
+    const home = await tempHome();
+    const binDir = await tempHome();
+    try {
+      process.env["HOME"] = home;
+      await installExecutable(binDir, "pi-web");
+      const npm = join(binDir, "npm");
+      const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
+      await writeFile(npm, `#!/bin/sh\nprintf '%s\\n' ${shellQuote(packageRoot)}\n`);
+      await chmod(npm, 0o755);
+      process.env["PATH"] = `${binDir}:${process.env["PATH"] ?? ""}`;
+
+      const status = await getPiWebStatus(daemonWithRuntime(runningSessiondRuntime()));
+
+      expect(status.components.web.installation?.kind).toBe("npm-global");
+      expect(status.commands.restart).toBe("pi-web restart");
+      expect(status.commands).not.toHaveProperty("restartWeb");
+      expect(status.commands).not.toHaveProperty("restartSessiond");
     } finally {
       await Promise.all([
         rm(home, { recursive: true, force: true }),

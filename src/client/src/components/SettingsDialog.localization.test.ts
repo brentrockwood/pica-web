@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 import { LitElement } from "lit";
+import * as themeCatalog from "../themeCatalog";
+import { builtInThemeCatalog } from "../themeCatalog.testSupport";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { configApi, piPackagesApi, pluginsApi, type Machine } from "../api";
 import { localization } from "../localization/browser";
@@ -16,10 +18,10 @@ const raw = "Raw <img> العربية";
 const remote: Machine = { ...remoteMachine, name: raw };
 const releases: (() => void)[] = [];
 beforeEach(() => {
+  vi.spyOn(themeCatalog, "loadThemeCatalog").mockResolvedValue(builtInThemeCatalog());
   vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
   vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ uploads: { defaultFolder: "original" } }));
-  vi.spyOn(configApi, "namingModels").mockResolvedValue({ models: [] });
-  vi.spyOn(configApi, "saveConfig").mockImplementation((config) => Promise.resolve(configResponse(config)));
+  vi.spyOn(configApi, "updateConfig").mockImplementation((update) => Promise.resolve(configResponse(update.set ?? {})));
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([]));
   vi.spyOn(piPackagesApi, "packages").mockResolvedValue({ packages: [] });
 });
@@ -98,7 +100,7 @@ it("keeps draft controls, focus, disclosure and machine-switch confirmation live
     expect(dialog.shadowRoot?.querySelector("img")).toBeNull();
   }
   expect(configApi.config).toHaveBeenCalledTimes(calls);
-  expect(configApi.saveConfig).not.toHaveBeenCalled();
+  expect(configApi.updateConfig).not.toHaveBeenCalled();
   keep.click();
   await settle(dialog);
   expect(dialog.shadowRoot?.querySelector(".machine-switch-confirmation")).toBeNull();
@@ -108,13 +110,13 @@ it("keeps draft controls, focus, disclosure and machine-switch confirmation live
 it("retains pending save state and resolves its success and failure in the current language", async () => {
   const dialog = await mount();
   const pending = deferred<ReturnType<typeof configResponse>>();
-  vi.mocked(configApi.saveConfig).mockReturnValueOnce(pending.promise);
+  vi.mocked(configApi.updateConfig).mockReturnValueOnce(pending.promise);
   const save = general(dialog).onSaveMachineConfig?.({ uploads: { defaultFolder: "new" } });
   await settle(dialog);
   for (const locale of ["en-XA", "ar-XB"]) {
     await language(dialog, locale);
     expect(general(dialog).saving).toBe(true);
-    expect(configApi.saveConfig).toHaveBeenCalledExactlyOnceWith({ uploads: { defaultFolder: "new" } }, remote.id);
+    expect(configApi.updateConfig).toHaveBeenCalledExactlyOnceWith({ set: { uploads: { defaultFolder: "new" } }, unset: [] }, remote.id);
   }
   pending.resolve(configResponse({ uploads: { defaultFolder: "new" } }));
   await save;
@@ -124,7 +126,7 @@ it("retains pending save state and resolves its success and failure in the curre
     expect(general(dialog).savedMessage).toBe(messages.t("machineSaved", { name: raw }));
     expect(general(dialog).saving).toBe(false);
   }
-  vi.mocked(configApi.saveConfig).mockRejectedValueOnce(new Error(raw));
+  vi.mocked(configApi.updateConfig).mockRejectedValueOnce(new Error(raw));
   await general(dialog).onSaveMachineConfig?.({ uploads: { defaultFolder: "failed" } });
   for (const locale of ["en-XA", "ar-XB", "en"]) {
     await language(dialog, locale);
@@ -135,7 +137,6 @@ it("retains pending save state and resolves its success and failure in the curre
 
 it("localizes delayed and settled load failures in every settings owner without translating diagnostics", async () => {
   vi.mocked(configApi.config).mockRejectedValue(new Error(raw));
-  vi.mocked(configApi.namingModels).mockRejectedValue(new Error(raw));
   vi.mocked(pluginsApi.plugins).mockRejectedValue(new Error(raw));
   vi.mocked(piPackagesApi.packages).mockRejectedValue(new Error(raw));
   const dialog = await mount();
@@ -150,7 +151,6 @@ it("localizes delayed and settled load failures in every settings owner without 
     await settle(dialog);
     const daemon = required(dialog.shadowRoot?.querySelector<SettingsSessiondPanel>("settings-sessiond-panel"));
     expect(daemon.error).toBe(messages.t("loadSessiond", { target: settingsFeedbackTargetLabel(remote), error: raw }));
-    expect(daemon.namingModelsError).toBe(messages.t("loadModels", { target: settingsFeedbackTargetLabel(remote), error: raw }));
     dialog.section = "plugins";
     await settle(dialog);
     expect(required(dialog.shadowRoot?.querySelector<SettingsPluginsPanel>("settings-plugins-panel")).error).toBe(messages.t("loadPluginSettings", { target: settingsFeedbackTargetLabel(remote), errors: localization.list([messages.t("configDiagnostic", { error: raw }), messages.t("pluginsDiagnostic", { error: raw })]) }));

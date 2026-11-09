@@ -184,6 +184,8 @@ let nextFrameId = 1;
 // controllable one: callbacks are queued and only run when a test drives a
 // frame, mirroring how the browser defers them until paint.
 beforeEach(() => {
+  // Node also provides sessionStorage; keep transcript caches local to each test.
+  vi.stubGlobal("sessionStorage", new MemoryStorage());
   framesById.clear();
   nextFrameId = 1;
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => {

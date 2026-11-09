@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, realpath, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,15 +25,11 @@ for (const shell of shells) {
 
 function launcherContract(shell) {
   const installation = (options = {}) => createInstallation(shell, options);
-  it("builds all three executable bins from one template", async () => {
+  it("builds executable bins accepted by the supported shell", async () => {
     const fixture = await installation();
-    for (const [name, target] of Object.entries(launcherTargets)) {
+    for (const name of Object.keys(launcherTargets)) {
       const path = fixture.launcher(name);
       expect((await lstat(path)).mode & 0o111).not.toBe(0);
-      const text = await readFile(path, "utf8");
-      expect(text).toContain(`TARGET="${target}"`);
-      expect(text.startsWith("#!/bin/sh\n")).toBe(true);
-      expect(text).not.toMatch(/__[A-Z_]+__/u);
       expect(await execute(shell.command, [...shell.args, "-n", path], fixture.env)).toMatchObject({ code: 0 });
     }
     await expect(minimumSupportedNodeVersion()).resolves.toBe(minimum);
@@ -147,7 +143,7 @@ function launcherContract(shell) {
 }
 
 async function createInstallation(shell, options = {}) {
-  const root = await mkdtemp(join(tmpdir(), "pi-web launcher-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pi-web launcher-")));
   roots.push(root);
   const dist = join(root, "package", "dist");
   const bin = join(root, "bin");

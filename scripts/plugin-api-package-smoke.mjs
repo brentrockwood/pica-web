@@ -8,9 +8,12 @@ const publicApiDeclarationPaths = [
   "server-plugin-api.d.ts",
   "shared/pluginApiTypes.d.ts",
   "shared/pluginCatalogTypes.d.ts",
+  "shared/pluginSessionLifecycleTypes.d.ts",
   "shared/localization.d.ts",
+  "shared/markdownTypes.d.ts",
   "shared/serverNoticePresentation.d.ts",
   "shared/terminalTitlePresentation.d.ts",
+  "shared/thinkingLevels.d.ts",
   "shared/workspaceRemovalPresentation.d.ts",
 ];
 const expectedPackageDeclarationPaths = [
@@ -47,7 +50,6 @@ export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRo
   const consumerRoot = join(fixtureRoot, "plugin-api-consumers");
   await cp(join(repoRoot, "test-fixtures", "plugin-api-consumers"), consumerRoot, { recursive: true });
   await cp(join(packageRoot, "examples", "workspace-provider-plugin"), join(consumerRoot, "dual-entry"), { recursive: true });
-  await cp(join(packageRoot, "examples", "session-bridge-plugin"), join(consumerRoot, "session-bridge"), { recursive: true });
   await Promise.all([
     mkdir(join(consumerRoot, "node_modules", "@jmfederico"), { recursive: true }),
     mkdir(join(consumerRoot, "node_modules", "@types"), { recursive: true }),
@@ -67,60 +69,31 @@ export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRo
     join(consumerRoot, "dual-entry", "src", "server.ts"),
   ];
 
-  await buildSessionBridgeExample(join(consumerRoot, "session-bridge"), repoRoot);
-
   for (const mode of pluginConsumerCompilerModes) {
     assertPluginApiResolution(browserPath, mode.options, packageRoot);
     assertStrictPluginConsumer("browser-only", [browserPath], mode, packageRoot, repoRoot, [
       "dist/plugin-api.d.ts",
       "dist/shared/pluginApiTypes.d.ts",
       "dist/shared/pluginCatalogTypes.d.ts",
+      "dist/shared/pluginSessionLifecycleTypes.d.ts",
       "dist/shared/localization.d.ts",
+      "dist/shared/markdownTypes.d.ts",
       "dist/shared/terminalTitlePresentation.d.ts",
       "dist/shared/workspaceRemovalPresentation.d.ts",
     ]);
     assertStrictPluginConsumer("server-only", [serverPath], mode, packageRoot, repoRoot, [
       "dist/server-plugin-api.d.ts",
+      "dist/shared/thinkingLevels.d.ts",
       "dist/shared/pluginApiTypes.d.ts",
       "dist/shared/pluginCatalogTypes.d.ts",
+      "dist/shared/pluginSessionLifecycleTypes.d.ts",
       "dist/shared/serverNoticePresentation.d.ts",
       "dist/shared/terminalTitlePresentation.d.ts",
       "dist/shared/workspaceRemovalPresentation.d.ts",
     ]);
-    assertStrictPluginConsumer("session-bridge browser/backend", [
-      join(consumerRoot, "session-bridge", "src", "browser", "index.ts"),
-      join(consumerRoot, "session-bridge", "src", "server.ts"),
-    ], mode, packageRoot, repoRoot, [
-      ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
-    ], ["node"]);
     assertStrictPluginConsumer("dual-entry example", dualEntryPaths, mode, packageRoot, repoRoot, [
       ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
     ], ["node"]);
-  }
-}
-
-async function buildSessionBridgeExample(exampleRoot, repoRoot) {
-  const manifest = JSON.parse(await readFile(join(exampleRoot, "package.json"), "utf8"));
-  if (manifest.devDependencies?.["@jmfederico/pi-web"] !== workspaceProviderExamplePiWebRange) {
-    throw new Error("Session bridge example must use the plugin platform release floor");
-  }
-  const configPath = join(exampleRoot, "tsconfig.json");
-  const config = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (config.error) throw new Error(formatDiagnostics([config.error], repoRoot));
-  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, exampleRoot);
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
-  const diagnostics = [...parsed.errors, ...ts.getPreEmitDiagnostics(program)];
-  if (diagnostics.length) throw new Error(formatDiagnostics(diagnostics, repoRoot));
-  const emitted = program.emit();
-  if (emitted.emitSkipped || emitted.diagnostics.length) throw new Error("Session bridge example build failed");
-  // Resolve the shipped manifest, not hardcoded output locations.
-  const entry = manifest.piWeb.plugins[0];
-  const server = await import(pathToFileURL(join(exampleRoot, entry.serverModule)).href);
-  const browser = await import(pathToFileURL(join(exampleRoot, entry.module)).href);
-  await readFile(join(exampleRoot, manifest.pi.extensions[0]), "utf8");
-  if (server.default.apiVersion !== 3 || browser.default.apiVersion !== 4
-    || server.default.requires.length !== 2 || entry.machineSpecific !== true) {
-    throw new Error("Session bridge example manifest/runtime entries are incompatible");
   }
 }
 
@@ -161,8 +134,9 @@ async function assertServerRuntimeApi(consumerRoot) {
       PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY,
       PI_WEB_HOST_WORKSPACES_CAPABILITY,
       PI_WEB_HOST_CATALOG_CAPABILITY,
+      PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY,
     } from "@jmfederico/pi-web/server-plugin-api";
-    export default [PI_WEB_HOST_WORKSPACES_CAPABILITY, PI_WEB_HOST_PI_SESSIONS_CAPABILITY, PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY, PI_WEB_HOST_CATALOG_CAPABILITY];
+    export default [PI_WEB_HOST_WORKSPACES_CAPABILITY, PI_WEB_HOST_PI_SESSIONS_CAPABILITY, PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY, PI_WEB_HOST_CATALOG_CAPABILITY, PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY];
   `, "utf8");
   const serverApi = await import(pathToFileURL(fixturePath).href);
   if (typeof serverApi.createCompanionBackend !== "function") throw new Error("Installed companion backend helper is missing");
@@ -170,7 +144,12 @@ async function assertServerRuntimeApi(consumerRoot) {
   if (serverApi.createCompanionBackend({ emit: (_channel, query) => query.accept(() => backend) }, "fixture.server") !== backend) {
     throw new Error("Installed companion helper did not return the hosted v5 backend");
   }
-  const [workspacesCapability, piSessionsCapability, sessionEventsCapability, catalogCapability] = serverApi.default;
+  const [workspacesCapability, piSessionsCapability, sessionEventsCapability, catalogCapability, lifecycleCapability] = serverApi.default;
+  if (!Object.isFrozen(lifecycleCapability) || lifecycleCapability?.pluginId !== "pi-web.host"
+    || lifecycleCapability?.id !== "session-lifecycle" || lifecycleCapability?.version !== 1
+    || typeof lifecycleCapability?.parse !== "function") {
+    throw new Error("Installed server plugin API does not expose the exact pi-web.host/session-lifecycle v1 token");
+  }
   if (!Object.isFrozen(catalogCapability) || catalogCapability?.pluginId !== "pi-web.host"
     || catalogCapability?.id !== "catalog" || catalogCapability?.version !== 1
     || typeof catalogCapability?.parse !== "function") {

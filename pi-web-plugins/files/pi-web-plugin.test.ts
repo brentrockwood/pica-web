@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 
-import type { PluginActivationContext, PluginCapability, PluginRuntimeContext, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
-import { html, svg, type TemplateResult } from "lit";
+import type { FilePreviewerInput, PluginActivationContextV5, PluginCapability, PluginRuntimeContextV5, WorkspacePanelContextV5, PluginCatalog } from "@jmfederico/pi-web/plugin-api";
+import { html, render, svg } from "lit";
+import { FilesDocumentPreview } from "./FilesDocumentPreview";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { filesLocalizationFixture } from "./filesLocalization.testSupport";
 import { FilesRuntime } from "./FilesRuntime";
-import plugin, { FILES_CODE_VIEWER_ELEMENT, FILES_PANEL_ELEMENT, FILES_VIEWER_ELEMENT, activateFilesPlugin } from "./pi-web-plugin";
+import plugin, { FILES_CODE_VIEWER_ELEMENT, FILES_DOCUMENT_PREVIEW_ELEMENT, FILES_PANEL_ELEMENT, FILES_VIEWER_ELEMENT, activateFilesPlugin } from "./pi-web-plugin";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -31,20 +32,47 @@ describe("Files plugin activation", () => {
   it("requires stylesheet integration v1 and passes the start-resolved capability across the panel boundary", async () => {
     expect(plugin.requires.map(({ id, version }) => ({ id, version }))).toEqual([
       { id: "stylesheet-integration", version: 1 },
-      { id: "content-rendering", version: 1 },
+      { id: "markdown-rendering", version: 1 },
+      { id: "file-previewing", version: 1 },
+      { id: "file-icons", version: 1 },
     ]);
     const result = activateFilesPlugin(activationContext(), new FilesRuntime());
     const integration = { registerRoot: vi.fn(() => vi.fn()), createController: vi.fn(), subscribe: vi.fn(() => vi.fn()) };
+    const icons = { resolveIcon: vi.fn(), subscribe: vi.fn(() => vi.fn()) };
+    const markdownRendering = { render: vi.fn(() => html`<b>Host Markdown</b>`) };
     const requests: string[] = [];
+    const previewer = result.contributions.filePreviewers?.[0];
+    const previewInput: FilePreviewerInput = {
+      machineId: "local", projectId: "project-1", workspaceId: "workspace-1",
+      file: { path: "image.png", content: "", size: 10, modifiedAt: "revision", encoding: "utf8", truncated: false, binary: true, mediaType: "image" },
+      files: createWorkspaceContext().files, signal: new AbortController().signal, fail: vi.fn(),
+    };
+    expect(previewer?.render(previewInput).values).not.toContain(integration);
     await result.start?.({ signal: new AbortController().signal, capabilities: {
       resolve<Value>(token: PluginCapability<Value>): Value {
         requests.push(token.id);
-        return token.parse(token.id === "stylesheet-integration" ? integration : { listRenderers: vi.fn(), renderText: vi.fn(), renderMarkdown: vi.fn() });
+        return token.parse(token.id === "file-icons" ? icons : token.id === "stylesheet-integration" ? integration : token.id === "file-previewing" ? { listPreviewers: vi.fn(), renderPreview: vi.fn() } : markdownRendering);
       },
     } });
-    expect(requests).toEqual(["content-rendering", "stylesheet-integration"]);
+    expect(requests).toEqual(["markdown-rendering", "file-previewing", "file-icons", "stylesheet-integration"]);
     const panel = result.contributions.workspacePanels?.[0]?.render(createWorkspaceContext());
     expect(panel?.values).toContain(integration);
+    expect(panel?.values).toContain(icons);
+    expect(previewer?.render(previewInput).values).toContain(integration);
+    const markdownPreviewer = result.contributions.filePreviewers?.find(({ id }) => id === "markdown");
+    if (markdownPreviewer === undefined) throw new Error("Missing Markdown previewer");
+    render(markdownPreviewer.render({ ...previewInput, file: { ...previewInput.file, mediaType: "markdown", content: "# Notes", binary: false } }), document.body);
+    const documentPreview = document.body.querySelector("pi-web-files-document-preview");
+    if (!(documentPreview instanceof FilesDocumentPreview)) throw new Error("Missing document preview");
+    await documentPreview.updateComplete;
+    expect(markdownRendering.render).toHaveBeenCalledWith(expect.objectContaining({ text: "# Notes", machineId: "local" }));
+    expect(documentPreview.shadowRoot?.querySelector("b")?.textContent).toBe("Host Markdown");
+    const markdownRequirement = plugin.requires.find(({ id }) => id === "markdown-rendering");
+    if (markdownRequirement === undefined) throw new Error("Missing Markdown requirement");
+    expect(markdownRequirement).toMatchObject({ pluginId: "pi-web", version: 1 });
+    for (const value of [null, {}, { render: "not a function" }]) {
+      expect(() => markdownRequirement.parse(value)).toThrow("Files requires Markdown rendering capability v1");
+    }
     const requirement = plugin.requires.find(({ id }) => id === "stylesheet-integration");
     if (requirement === undefined) throw new Error("Missing stylesheet integration requirement");
     for (const value of [null, {}, { ...integration, registerRoot: undefined }, { ...integration, createController: undefined }, { ...integration, subscribe: undefined }]) {
@@ -59,7 +87,7 @@ describe("Files plugin activation", () => {
     const actions = result.contributions.actions ?? [];
 
     expect(panel?.fileOpenQuery?.(createWorkspaceContext(), "reports/a #1.txt")).toEqual({ file: "reports/a #1.txt" });
-    expect(plugin).toMatchObject({ apiVersion: 4, name: "Files" });
+    expect(plugin).toMatchObject({ apiVersion: 5, name: "Files" });
     expect(panel).toMatchObject({
       id: "workspace.files",
       title: "Files",
@@ -73,6 +101,8 @@ describe("Files plugin activation", () => {
     expect(customElements.get(FILES_PANEL_ELEMENT)).toBeDefined();
     expect(customElements.get(FILES_VIEWER_ELEMENT)).toBeDefined();
     expect(customElements.get(FILES_CODE_VIEWER_ELEMENT)).toBeDefined();
+    expect(customElements.get(FILES_DOCUMENT_PREVIEW_ELEMENT)).toBeDefined();
+    expect(result.contributions.filePreviewers).toHaveLength(5);
   });
 
   it("allocates registration-local runtime state for repeated module activation", () => {
@@ -113,12 +143,11 @@ describe("Files plugin activation", () => {
     const rendered = panel?.render(workspaceContext);
     if (rendered === undefined) throw new Error("Files panel contribution was unavailable");
 
-    expect(templateText(rendered)).toContain("pi-web-files-panel");
     expect(rendered.values).toContain(workspaceContext);
     expect(rendered.values).toContain(runtime);
 
-    const selectWorkspaceTool = vi.fn<PluginRuntimeContext["selectWorkspaceTool"]>();
-    const refreshWorkspacePanels = vi.fn<PluginRuntimeContext["refreshWorkspacePanels"]>();
+    const selectWorkspaceTool = vi.fn<PluginRuntimeContextV5["selectWorkspaceTool"]>();
+    const refreshWorkspacePanels = vi.fn<PluginRuntimeContextV5["refreshWorkspacePanels"]>();
     const actionContext = createRuntimeContext({ selectWorkspaceTool, refreshWorkspacePanels });
     const view = result.contributions.actions?.find((action) => action.id === "view.files");
     const refresh = result.contributions.actions?.find((action) => action.id === "workspace.refresh-files");
@@ -131,9 +160,9 @@ describe("Files plugin activation", () => {
   });
 });
 
-function activationContext(runtimePluginId = "files"): PluginActivationContext {
+function activationContext(runtimePluginId = "files"): PluginActivationContextV5 {
   return Object.freeze({
-    apiVersion: 4,
+    apiVersion: 5,
     pluginId: "files",
     runtimePluginId,
     localization: filesLocalizationFixture().localization,
@@ -144,8 +173,9 @@ function activationContext(runtimePluginId = "files"): PluginActivationContext {
   });
 }
 
-function createRuntimeContext(overrides: Partial<PluginRuntimeContext> = {}): PluginRuntimeContext {
+function createRuntimeContext(overrides: Partial<PluginRuntimeContextV5> = {}): PluginRuntimeContextV5 {
   const context = {
+    catalog: catalog(),
     navigate: () => Promise.resolve(),
     state: { selectedWorkspace: { id: "workspace-1", projectId: "project-1", path: "/repo", label: "main", isMain: true } },
     prompt: { insertText: vi.fn(), getText: vi.fn(() => ""), getSelection: vi.fn(() => null) },
@@ -166,12 +196,13 @@ function createRuntimeContext(overrides: Partial<PluginRuntimeContext> = {}): Pl
     archiveSession: vi.fn(),
     stopActiveWork: vi.fn(),
     ...overrides,
-  } satisfies PluginRuntimeContext;
+  } satisfies PluginRuntimeContextV5;
   return context;
 }
 
-function createWorkspaceContext(): WorkspacePanelContext {
+function createWorkspaceContext(): WorkspacePanelContextV5 {
   return {
+    catalog: catalog(),
     navigate: () => Promise.resolve(),
     machine: { id: "local", name: "Local", kind: "local" },
     workspace: { id: "workspace-1", projectId: "project-1", path: "/repo", label: "main", isMain: true },
@@ -195,6 +226,11 @@ function createWorkspaceContext(): WorkspacePanelContext {
   };
 }
 
-function templateText(result: TemplateResult): string {
-  return result.strings.join("");
+function catalog(): PluginCatalog {
+  return {
+    version: 1, machineId: "local",
+    projects: { list: vi.fn(), get: vi.fn() },
+    workspaces: { list: vi.fn(), get: vi.fn() },
+    sessions: { list: vi.fn(), get: vi.fn() },
+  };
 }

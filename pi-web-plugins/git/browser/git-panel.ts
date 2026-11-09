@@ -1,4 +1,5 @@
 import type {
+  FileIconsCapability,
   HtmlTemplateTag,
   PluginLocalization,
   JsonValue,
@@ -17,9 +18,11 @@ import {
   parseGitDiffResponse,
   parseGitStatusResponse,
   type GitDiffResponse,
+  type GitFileState,
   type GitStatusFile,
   type GitStatusResponse,
 } from "./git-contract.js";
+import { defineGitFileIconElement } from "./gitFileIcon.js";
 import { buildGitFileList, type GitFileListModel, type GitFileListSubmoduleFile, type GitFileListSubmoduleGroup } from "./gitFileList.js";
 import { buildGitFileTree, collectGitFileTreeDirectoryPaths, type GitFileTreeNode } from "./gitFileTree.js";
 import { readGitFileView, writeGitFileView, type GitFileView } from "./gitFileViewPreference.js";
@@ -80,9 +83,11 @@ export function createGitBrowserContributions(
   svg: SvgTemplateTag,
   stylesheetIntegration: () => StylesheetIntegrationCapabilityV1 | undefined,
   localization: PluginLocalization,
+  fileIcons: () => FileIconsCapability | undefined,
 ): PluginContributions {
   const panelId = `${runtimePluginId}:${GIT_PANEL_LOCAL_ID}`;
-  const controller = new GitUiController(sourcePluginId, createGitDiffRoute(panelId), localization);
+  const controller = new GitUiController(sourcePluginId, createGitDiffRoute(panelId), localization, fileIcons);
+  defineGitFileIconElement();
   defineGitPanelActivityElement();
   return {
     actions: createGitActions(panelId, controller),
@@ -103,9 +108,12 @@ class GitUiController {
     private readonly sourcePluginId: string,
     private readonly route: GitDiffRoute,
     readonly localization: PluginLocalization,
+    private readonly getFileIcons: () => FileIconsCapability | undefined,
   ) {
     this.messages = localization.registerMessages("panel", definitions);
   }
+
+  get fileIcons(): FileIconsCapability | undefined { return this.getFileIcons(); }
 
   canInspectWorkspace(workspace: Workspace | undefined): boolean {
     return workspace !== undefined &&
@@ -437,7 +445,7 @@ function renderGitPanel(html: HtmlTemplateTag, controller: GitUiController, cont
   return html`
     <section class="git-panel">
       <style data-git-styles .textContent=${gitPanelStyles}></style>
-      <pi-web-git-panel-activity .stylesheetIntegration=${stylesheetIntegration} .localization=${controller.localization} .controller=${controller} .context=${context}></pi-web-git-panel-activity>
+      <pi-web-git-panel-activity .fileIcons=${controller.fileIcons} .stylesheetIntegration=${stylesheetIntegration} .localization=${controller.localization} .controller=${controller} .context=${context}></pi-web-git-panel-activity>
       <section class="ui-toolbar git-toolbar">
         <strong>${controller.messages.t("git")}</strong>
         ${state.stale ? html`<span class="git-stale">${controller.messages.t("stale")}</span>` : null}
@@ -584,11 +592,24 @@ function renderSelectableRow(
   depth: number,
 ) {
   const selected = state.selectedDiffPath === path;
+  const status = file.index === "conflicted" || file.workingTree === "conflicted"
+    ? "conflicted" : file.workingTree !== "unmodified" ? file.workingTree : file.index;
+  const description = controller.messages.t("fileState", { state: status });
+  const staged = file.index !== "unmodified";
+  const unstaged = file.workingTree !== "unmodified";
+  const staging = status === "conflicted" || status === "untracked" || status === "ignored"
+    ? undefined : staged && unstaged ? "bothChanges" : staged ? "stagedChanges" : "unstagedChanges";
   return html`
-    <button type="button" class=${selected ? "ui-button ui-file-row selected" : "ui-button ui-file-row"} style=${`--depth:${String(depth)}`} title=${path} aria-current=${selected ? "page" : "false"} @click=${() => { controller.selectDiff(context, path); }}>
-      <span class="ui-file-leading" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg></span>
+    <button type="button" class=${selected ? "ui-button ui-file-row selected" : "ui-button ui-file-row"} data-git-state=${status} style=${`--depth:${String(depth)}`} title=${path} aria-current=${selected ? "page" : "false"} @click=${() => { controller.selectDiff(context, path); }}>
+      <span class="ui-file-leading" aria-hidden="true"><pi-web-git-file-icon .url=${controller.fileIcons?.resolveIcon(file.path)}></pi-web-git-file-icon></span>
       <span class="ui-file-label"><bdi dir="ltr">${label}</bdi></span>
-      <span class="ui-file-meta" title=${controller.messages.t("fileState", { state: file.workingTree !== "unmodified" ? file.workingTree : file.index })}>${stateLabel(file.index, file.workingTree)}</span>
+      <span class="git-file-details">
+      ${staging === undefined ? null : html`<span class="git-staging" title=${controller.messages.t("stagingDetail", {
+        index: controller.messages.t("fileState", { state: file.index }),
+        workingTree: controller.messages.t("fileState", { state: file.workingTree }),
+      })}>${controller.messages.t(staging)}</span>`}
+      <span class="ui-file-meta git-status" title=${description} aria-label=${description}>${status === "conflicted" ? description : stateLabel(status)}</span>
+      </span>
     </button>
   `;
 }
@@ -655,6 +676,21 @@ function defineGitPanelActivityElement(): void {
     private releaseStyles: (() => void) | undefined;
     private localizationValue: PluginLocalization | undefined;
     private releaseLocalization: (() => void) | undefined;
+    private icons: FileIconsCapability | undefined;
+    private releaseIcons: (() => void) | undefined;
+
+    set fileIcons(value: FileIconsCapability | undefined) {
+      if (value === this.icons) return;
+      this.releaseIcons?.();
+      this.releaseIcons = undefined;
+      this.icons = value;
+      this.subscribeIcons();
+    }
+
+    private subscribeIcons(): void {
+      if (!this.isConnected || this.releaseIcons !== undefined) return;
+      this.releaseIcons = this.icons?.subscribe(() => this.contextValue?.host.requestRender());
+    }
 
     set localization(value: PluginLocalization | undefined) {
       if (this.localizationValue === value) return;
@@ -699,12 +735,15 @@ function defineGitPanelActivityElement(): void {
     connectedCallback(): void {
       this.registerStyles();
       this.subscribeLocalization();
+      this.subscribeIcons();
       this.contextValue?.host.requestRender();
       window.addEventListener("popstate", this.onPopState);
       this.restart();
     }
 
     disconnectedCallback(): void {
+      this.releaseIcons?.();
+      this.releaseIcons = undefined;
       this.releaseLocalization?.();
       this.releaseLocalization = undefined;
       this.releaseStyles?.();
@@ -748,9 +787,10 @@ function gitSummary(html: HtmlTemplateTag, status: GitStatusResponse, controller
     : controller.messages.rich("branchSummary", { branch, ahead, behind, name: (parts) => html`<bdi dir="ltr">${parts}</bdi>` });
 }
 
-function stateLabel(index: string, workingTree: string): string {
-  const label = workingTree !== "unmodified" ? workingTree : index;
-  return label.slice(0, 1).toUpperCase();
+function stateLabel(state: GitFileState): string {
+  if (state === "untracked") return "?";
+  if (state === "ignored") return "!";
+  return state.slice(0, 1).toUpperCase();
 }
 
 function formatLineNumber(lineNumber: number | undefined, controller: GitUiController): string {
@@ -782,7 +822,7 @@ const gitPanelStyles = `
   .git-panel ${activityElementTag} { display: none; }
   .git-panel small, .git-panel .git-muted { color: var(--pi-muted); }
   .git-panel p { margin: 10px; }
-  .git-panel .git-toolbar { overflow-x: auto; flex: 0 0 auto; border-bottom: 1px solid var(--pi-border-muted); font-size: 12px; color: var(--pi-muted); }
+  .git-panel .git-toolbar { overflow-x: auto; flex: 0 0 auto; font-size: 12px; color: var(--pi-muted); }
   .git-panel .git-toolbar-actions { margin-inline-start: auto; }
   .git-panel .git-toolbar > strong { display: flex; align-items: center; padding-inline: 10px; font-weight: 500; }
   .git-panel .git-toolbar .ui-button { white-space: nowrap; }
@@ -791,6 +831,15 @@ const gitPanelStyles = `
   .git-panel .git-error { flex: 0 0 auto; margin: 8px; border: 1px solid var(--pi-danger); border-radius: 7px; color: var(--pi-danger); padding: 8px; }
   .git-panel .git-split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(160px, 34%) minmax(0, 1fr); }
   .git-panel .git-file-list { border-bottom: 1px solid var(--pi-border); }
+  .git-panel [data-git-state] { --git-status-color: var(--pi-muted); }
+  .git-panel [data-git-state="added"], .git-panel [data-git-state="untracked"] { --git-status-color: var(--pi-success); }
+  .git-panel [data-git-state="modified"] { --git-status-color: var(--pi-warning); }
+  .git-panel [data-git-state="deleted"], .git-panel [data-git-state="conflicted"] { --git-status-color: var(--pi-danger); }
+  .git-panel [data-git-state="renamed"], .git-panel [data-git-state="copied"] { --git-status-color: var(--pi-accent); }
+  .git-panel [data-git-state] .ui-file-label, .git-panel .git-status { color: var(--git-status-color); }
+  .git-panel .git-status { font-weight: 600; }
+  .git-panel .git-file-details { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .git-panel .git-staging { color: var(--pi-muted); font-size: 11px; white-space: nowrap; }
   .git-panel .git-summary { margin: 10px 12px 8px; color: var(--pi-muted); }
   .git-panel .submodule-badge { display: inline-block; margin-inline-start: 6px; border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); padding: 0 5px; font-size: 11px; font-weight: 400; vertical-align: baseline; }
   .git-panel .git-viewer { min-height: 0; overflow: auto; display: flex; flex-direction: column; }

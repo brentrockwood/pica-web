@@ -1,5 +1,5 @@
 import type { TemplateResult } from "lit";
-import type { PluginBackend, PluginCatalog, PluginNavigate, PluginProjects, PluginPromptEditor, PluginSelectedSession, PluginSelectionService } from "../../../plugin-api";
+import type { FileIconThemeContribution, PluginBackend, PluginCatalog, PluginNavigate, PluginProjects, PluginPromptEditor, PluginSelectedSession, PluginSelectionService } from "../../../plugin-api";
 import type { AppAction } from "../actions";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
 import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
@@ -27,6 +27,7 @@ export interface PiWebPluginRegistration extends PiWebPluginRegistrationDeclarat
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
 }
 
 export interface WorkspacePluginBinding {
@@ -35,6 +36,7 @@ export interface WorkspacePluginBinding {
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
 }
 
 type MaybePromise<T> = T | Promise<T>;
@@ -90,7 +92,10 @@ export interface QualifiedStylesheetContribution extends StylesheetContribution 
 export interface PluginContributions {
   stylesheets?: StylesheetContribution[];
   contentRenderers?: import("../../../plugin-api").ContentRendererContributionV5[];
+  transcriptRenderers?: import("../../../plugin-api").TranscriptRendererContribution[];
   syntaxHighlighters?: import("../../../plugin-api").SyntaxHighlighterContribution[];
+  markdownExtensions?: import("../../../plugin-api").MarkdownExtensionContribution[];
+  filePreviewers?: import("../../../plugin-api").FilePreviewerContribution[];
   messageActions?: import("../../../plugin-api").MessageActionContribution[];
   actions?: PluginAction[];
   applicationPanels?: ApplicationPanelContribution[];
@@ -98,6 +103,7 @@ export interface PluginContributions {
   workspaceLabels?: WorkspaceLabelContribution[];
   sessionLabels?: SessionLabelContribution[];
   themes?: ThemeContribution[];
+  fileIconThemes?: FileIconThemeContribution[];
   themePairs?: ThemePairContribution[];
 }
 
@@ -185,11 +191,18 @@ export interface PluginPeerChannel {
 export type PluginPeer =
   | {
       request(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+      resourceUrl?(operation: string, input: JsonValue): string;
       openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
     }
   | {
       request?: undefined;
       openChannel(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+      resourceUrl?(operation: string, input: JsonValue): string;
+    }
+  | {
+      request?: undefined;
+      openChannel?: undefined;
+      resourceUrl(operation: string, input: JsonValue): string;
     };
 
 export interface WorkspaceHost {
@@ -227,6 +240,7 @@ export interface MaintenanceTerminal {
 
 export interface PiWebUnstableRuntimeContext {
   openSettings?: (section?: SettingsSection) => void;
+  openRestart?: () => void;
   openMcpAuth?: (mode: "login" | "logout") => void | Promise<void>;
 }
 
@@ -435,6 +449,14 @@ export interface QualifiedSessionLabelContribution extends SessionLabelContribut
   pluginId: PluginId;
   localId: LocalContributionId;
   machineId?: string;
+}
+
+export type { FileIconAsset, FileIconThemeContribution } from "../../../plugin-api";
+
+export interface QualifiedFileIconThemeContribution extends FileIconThemeContribution {
+  id: QualifiedContributionId;
+  pluginId: PluginId;
+  localId: LocalContributionId;
 }
 
 export type ThemeColorScheme = "dark" | "light";

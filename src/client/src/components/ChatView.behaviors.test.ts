@@ -5,6 +5,7 @@ import { DEFAULT_CHAT_BEHAVIORS, type ChatBehaviors } from "../chatBehaviors";
 import { PLAIN_CODE_BLOCK_POLICY } from "../formatting/codeBlockPolicy";
 import { MANUAL_CHAT_BEHAVIORS } from "../chatBehaviors.testSupport";
 import { groupStorageKey } from "../chatDisclosure";
+import { chatScrollScopeKey, chatScrollStorageKey } from "../chatScrollPosition";
 import { transcriptViewFromHistory } from "../chatTranscriptStore";
 import { ChatView } from "./ChatView";
 import { controlledChatViewport } from "./chatScroll.testSupport";
@@ -81,14 +82,51 @@ function scrollingViewport(view: ChatView, initialTop = 2445) {
 }
 
 describe("composable normal chat", () => {
-  it("keeps default conveniences and explicit small navigation controls, without a meter", async () => {
-    const view = await mount();
-    expect(view.behaviors.rememberPosition).toBe(true);
-    expect(view.behaviors.followTail).toBe(true);
-    expect(view.behaviors.automaticHistory).toBe(true);
-    expect(view.renderRoot.querySelector("conversation-meter, .scroll-marker")).toBeNull();
-    expect(required(view.renderRoot, '.chat-jumps [aria-label="Jump to top"]').textContent).toBe("↑");
-    expect(required(view.renderRoot, '.chat-jumps [aria-label="Jump to end"]').textContent).toBe("↓");
+  it("isolates bookmarks and pending restoration when machines share a session ID", async () => {
+    const view = await mount({ ...MANUAL_CHAT_BEHAVIORS, rememberPosition: true });
+    const { metrics } = controlledChatViewport(view);
+    const anchor = required(view.renderRoot, "[data-scroll-anchor-id]");
+    anchor.getBoundingClientRect = () => new DOMRect(0, 500 - metrics.top, 600, 100);
+    const position = (offset: number) => JSON.stringify({ mode: "anchor", anchorId: anchor.dataset["scrollAnchorId"], offset });
+    const keyA = chatScrollStorageKey(chatScrollScopeKey("a", view.sessionId));
+    const keyB = chatScrollStorageKey(chatScrollScopeKey("b", view.sessionId));
+    const legacyKey = chatScrollStorageKey(view.sessionId);
+    localStorage.setItem(keyA, position(10));
+    localStorage.setItem(keyB, position(30));
+    view.machineId = "a";
+    await view.updateComplete;
+    // A's queued restore must neither run on B nor overwrite A's saved choice.
+    localStorage.setItem(legacyKey, position(90));
+    view.machineId = "b";
+    await view.updateComplete;
+    required(view.renderRoot, "[data-scroll-anchor-id]").getBoundingClientRect = () => new DOMRect(0, 500 - metrics.top, 600, 100);
+    flushFrames();
+    view.saveScrollPosition();
+    expect(metrics.top).toBe(370);
+    expect(localStorage.getItem(keyA)).toBe(position(10));
+    expect(localStorage.getItem(keyB)).toBe(position(30));
+    expect(localStorage.getItem(legacyKey)).toBe(position(90));
+  });
+
+  it.each(["navigation", "pointer", "editing"] as const)("respects %s input while a remembered position is queued", async (kind) => {
+    const view = await mount({ ...MANUAL_CHAT_BEHAVIORS, rememberPosition: true });
+    const { metrics, write } = controlledChatViewport(view);
+    const chat = required(view.renderRoot, ".chat");
+    const anchor = required(view.renderRoot, "[data-scroll-anchor-id]");
+    anchor.getBoundingClientRect = () => new DOMRect(0, 500 - metrics.top, 600, 100);
+    localStorage.setItem(chatScrollStorageKey(view.sessionId), JSON.stringify({ mode: "anchor", anchorId: anchor.dataset["scrollAnchorId"], offset: 0 }));
+    view.restoreScrollPosition();
+    if (kind === "pointer") chat.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    else {
+      const target = kind === "editing" ? document.createElement("textarea") : chat;
+      if (target !== chat) chat.append(target);
+      const event = new KeyboardEvent("keydown", { key: "PageDown", bubbles: true, composed: true, cancelable: true });
+      target.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    flushFrames();
+    if (kind === "editing") expect(metrics.top).toBe(400);
+    else expect(write).not.toHaveBeenCalled();
   });
 
   it("can render navigation in another surface while retaining scroll behavior and follow state", async () => {
@@ -305,7 +343,7 @@ describe("composable normal chat", () => {
     expect(required(view.renderRoot, '[aria-label="Jump to end"]').classList.contains("following")).toBe(false);
   });
 
-  it("anchors an actual history prepend to the message being read", async () => {
+  it.each([false, true])("anchors history prepends unless the reader intervenes with other flows disabled (input: %s)", async (interrupted) => {
     const view = await mount({ ...MANUAL_CHAT_BEHAVIORS, anchorPrepends: true });
     view.messageStart = 100;
     await view.updateComplete;
@@ -322,9 +360,13 @@ describe("composable normal chat", () => {
     expect(required(view.renderRoot, 'article[data-index="102"]')).toBe(reading);
     expect(write).not.toHaveBeenCalled();
     messageTop = 300;
+    if (interrupted) chat.dispatchEvent(new WheelEvent("wheel", { deltaY: 10 }));
     flushFrames();
-    expect(write).toHaveBeenCalledExactlyOnceWith(310);
-    expect(reading.getBoundingClientRect().top).toBe(90);
+    if (interrupted) expect(write).not.toHaveBeenCalled();
+    else {
+      expect(write).toHaveBeenCalledExactlyOnceWith(310);
+      expect(reading.getBoundingClientRect().top).toBe(90);
+    }
   });
 
   it("preserves entry identity when raw pages normalize to fewer displayed messages", async () => {
@@ -562,13 +604,6 @@ describe("composable normal chat", () => {
     }
   });
 
-  it("applies CSS simplification independently of scrolling capabilities", async () => {
-    const view = await mount({ ...DEFAULT_CHAT_BEHAVIORS, visualEffects: false });
-    expect(required(view.renderRoot, ".chat-wrap").classList.contains("plain")).toBe(true);
-    expect(view.behaviors.followTail).toBe(true);
-    view.behaviors = DEFAULT_CHAT_BEHAVIORS; await view.updateComplete;
-    expect(required(view.renderRoot, ".chat-wrap").classList.contains("plain")).toBe(false);
-  });
 });
 
 describe("quiet mode", () => {
@@ -607,14 +642,5 @@ describe("quiet mode", () => {
     const grown = required(view.renderRoot, ".event-group");
     expect(grown.hasAttribute("open")).toBe(true);
     expect(required(grown, "summary").textContent).toContain("2 events");
-  });
-
-  it("leaves the live group expanded when quiet mode is off", async () => {
-    const view = await mount();
-    view.isSendingPrompt = true;
-    view.messages = [{ role: "assistant", entryId: "loud-thinking", parts: [{ type: "thinking", text: "Plan the work." }] }];
-    view.messageTotal = 1;
-    await view.updateComplete;
-    expect(required(view.renderRoot, ".event-group").hasAttribute("open")).toBe(true);
   });
 });

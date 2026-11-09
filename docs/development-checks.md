@@ -3,6 +3,7 @@
 Use focused checks for local feedback; use CI and delivery gates for broad confidence. Pick checks by the boundary changed, not by a habit of running every command before every handoff.
 
 For incremental chat UX changes, see [composing chat behavior](chat-behaviors.md) for capability ownership and internal configuration.
+For website releases and website-only hotfixes, see [website deployments](website-deployments.md).
 
 ## Fast local feedback
 
@@ -38,7 +39,21 @@ git diff --check
 
 The first cached typecheck still pays for a full check; subsequent runs reuse `node_modules/.cache/pi-web/typecheck.tsbuildinfo`. Scoped ESLint is type-aware and still loads the TypeScript project, so it belongs at a meaningful checkpoint rather than after every keystroke. Focused tests/watch mode are the innermost loop.
 
-Documentation/comment-only changes need link/path review, relevant documentation or asset tests, and `git diff --check`; they do not need a local typecheck or whole-project lint. Use the [testing guide](../.agents/skills/testing-guide/SKILL.md#decide-whether-a-test-adds-protection) to choose the smallest boundary that proves the behavior.
+Documentation/comment-only changes need link/path review, relevant documentation or asset tests, and `git diff --check`; they do not need a local typecheck or whole-project lint. Use [testing policy](testing.md#choose-the-smallest-useful-boundary) to choose the smallest boundary that proves the behavior.
+
+## Development startup
+
+`package.json` owns development startup commands and prerequisites. Run services through npm so their standard `pre<script>`, main script, and `post<script>` lifecycle steps execute in order. A failing prerequisite prevents that service from starting; post hooks are normal completion steps, not guaranteed shutdown cleanup.
+
+- `npm run dev` supervises watched sessiond, web/API, and client services.
+- `npm run dev:ui` supervises web/API and client services without owning sessiond.
+- Split native and Docker services use `start:sessiond` for the non-watched daemon and `dev:ui` for the UI group.
+
+Existing native development service definitions continue to work but retain their shell-based grouping until reinstalled. To adopt shared supervision, run `pi-web install --dev` once from the updated checkout, including the same `--config <path>` option if the services use a custom config file. Reinstalling services interrupts active sessions and terminals. Native update/restart commands do not rewrite definitions; `pi-web doctor` identifies outdated definitions and recommends reinstalling them. Docker updates recreate them through the normal update flow.
+
+`dev-services.mjs` supervises complete npm lifecycles, propagates failures, and stops sibling process groups. Service launchers own their runtime/build working directories. Deployment definitions select service scripts and environments; they must not repeat compiler, asset-generation, or other prerequisite commands. Add new prerequisites to the owning package lifecycle, then test their ordering and failure behavior at that boundary.
+
+Docker's `pi-web-npm` wrapper selects the image's Node/npm for startup tooling. API/sessiond launchers restore the saved tooling PATH before spawning their runtimes with that selected Node, so user tools and terminals retain their original PATH. Browser/plugin builders keep the pinned lifecycle environment and use the `/build/pi-web` source mount. Docker's init forwards shutdown signals to the lifecycle process group so the Node supervisors can clean up their detached children.
 
 ## Browser surface contracts
 
@@ -51,7 +66,7 @@ npm run test:browser
 
 On Linux, browser system libraries may also be needed; Playwright documents missing dependencies when a browser cannot launch. CI installs them with `npx playwright install --with-deps chromium firefox webkit`.
 
-The suite builds an isolated component fixture into `node_modules/.cache/pi-web/browser-fixture` and starts its own Vite preview server on `127.0.0.1:8516`. It uses fake completion data and does not start or connect to a session daemon. It does not rebuild the published app or use the running development server. It covers Chromium, Firefox, WebKit, and a touch/mobile Chromium profile. Use `npm run test:browser -- --project=chromium` for focused iteration. Failure traces are written under `test-results/` and can be opened with `npx playwright show-trace <trace.zip>`.
+The npm command generates the bundled Material icon assets before building fixtures, so a clean checkout does not depend on a prior app build or unit-test run. The suite builds an isolated component fixture into `node_modules/.cache/pi-web/browser-fixture` and starts its own Vite preview server on `127.0.0.1:8516`. It uses fake completion data and does not start or connect to a session daemon. It does not rebuild the published app or use the running development server. It covers Chromium, Firefox, WebKit, and a touch/mobile Chromium profile. Use `npm run test:browser -- --project=chromium` for focused iteration. Failure traces are written under `test-results/` and can be opened with `npx playwright show-trace <trace.zip>`.
 
 These tests prove browser painting, hit targeting, anchoring, and focus/dismissal composition; happy-dom tests remain responsible for component event wiring and state. They are a separate CI job, not part of `npm test` or `npm run verify`.
 
@@ -62,14 +77,26 @@ These tests prove browser painting, hit targeting, anchoring, and focus/dismissa
 | Local iteration | Focused tests, optionally in watch mode | Developer/agent workspace |
 | Local completion | Relevant tests; scoped ESLint and cached typecheck for TypeScript changes; diff/link checks as applicable | Developer/agent workspace |
 | Commit | `git diff --cached --check` only, through the pre-commit hook | Local workspace after `npm install`/`npm ci` configures `.githooks` |
-| Pull request | `npm run verify`, build, artifact checks; browser surface contracts in a separate Linux job | GitHub Actions CI, Linux and Windows |
-| Merge/push to `main` | Same full CI and browser checks; installed-package smoke on Linux | GitHub Actions CI |
-| Manual CI run | Same full CI checks; installed-package smoke on Linux | GitHub Actions `workflow_dispatch`, selected ref |
+| Pull request | Linux: full ordinary suite, static checks, build, artifact checks, and browser contracts. Windows: `npm run test:windows` | GitHub Actions CI |
+| Merge/push to `main` | Same CI checks; installed-package and runtime smoke checks on Linux | GitHub Actions CI |
+| Manual CI run | Same CI checks; installed-package and runtime smoke checks on Linux | GitHub Actions `workflow_dispatch`, selected ref |
 | Package publication | Full verification, build, artifact checks, installed-package smoke, then publish | GitHub Actions publish workflow, Linux |
 
-Pre-commit checks only the staged diff for whitespace errors and introduced conflict markers. It starts no npm/Node process and runs no typecheck, lint, Knip, tests, or build. The former `verify:staged` command and staged-validation planner have been removed. Agents choose and run the scoped completion checks explicitly, then commit without repeating them. A successful commit proves hygiene only; CI independently checks the code.
+Pre-commit checks only the staged diff for whitespace errors and introduced conflict markers. It starts no npm/Node process and runs no typecheck, lint, Knip, tests, or build. Agents choose and run the scoped completion checks explicitly, then commit without repeating them. A successful commit proves hygiene only; CI independently checks the code.
 
 `npm run verify` runs uncached typechecking, whole-project ESLint, Knip unused-code analysis, and the ordinary test suite. Run it locally when a change's affected surface cannot be bounded, validation configuration changes, or a user explicitly requests full verification. A shared helper with identifiable consumers can still use related tests; a final handoff alone is not a reason to rerun every check. CI provides the mandatory broad PR/merge gate.
+
+CI runs these independent jobs in parallel:
+
+- `Static checks`: typecheck, lint, and Knip on Linux.
+- `Tests (ubuntu-latest)`: the full ordinary suite.
+- `Tests (windows-latest)`: `npm run test:windows`, the explicit native-boundary subset in `vitest.windows.config.ts`.
+- `Package and runtime contracts (Linux)`: build, then artifact checks and main/manual installed-package smoke checks.
+- `Browser surface contracts`: the isolated browser suite on Linux.
+
+The Windows subset repeats real filesystem/path handling, process startup, module loading, and local transports. Linux also runs these files through the full suite; the second run protects host OS differences. Pure logic, mocked OS/service behavior, DOM tests, and static artifact contracts run only on Linux. Add tests to the Windows subset when their real OS interaction adds coverage, not just because they mention Windows.
+
+This overlaps static analysis with tests and keeps smoke checks from waiting for the full suite. Build still precedes checks that consume its output. Branch rules requiring individual checks must use the names above instead of the former `Verify and package (...)` checks.
 
 Report the exact commands and scope actually verified. A focused test run is not a full-suite pass, and local results do not replace checking the CI result.
 
@@ -101,7 +128,7 @@ Unlike ordinary tests or artifact inspection, the smoke test packs the existing 
 | Standalone server TypeBox | Native Node creates/validates schemas through the declared `pi-web-typebox` alias and imports the built server tools without Pi's module mapping or Vitest transforms. |
 | Pi-managed install | A separate `--legacy-peer-deps` installation omits automatic SDK peers and uses the selected existing Pi installation to load the CLI and server tool modules. |
 | Pi extension loading | The real Pi resource loader loads the installed `/pi-web` extension in both install layouts, registers its command, and reports no dependency warnings. |
-| Public plugin API | Strict browser/server consumer and example compilations resolve installed public entries under NodeNext and Bundler; unsupported deep imports are rejected and emitted session-bridge entries import successfully. |
+| Public plugin API | Strict browser/server consumer and example compilations resolve installed public entries under NodeNext and Bundler; unsupported deep imports are rejected. |
 | Native terminal | The installed stable `node-pty` and terminal service execute a real shell command, capture its output, and exit successfully. |
 
 This catches missing packaged files, bad exports, undeclared or incorrectly resolved dependencies, peer-install-policy differences, resource-loader incompatibility, and native PTY/install-script failures that can pass in a development checkout. It does not replace application tests, install user services, verify full HTTP/WebSocket interactions or host admission, exercise browser rendering/live model calls, or test every supported machine/platform.
@@ -138,6 +165,13 @@ Node's receiver can enforce channel payload limits during assembly. Bun's native
 ## Shared Pi runtime
 
 PI WEB reuses the user's existing Pi installation. The `/pi-web` extension gets that installation through Pi's public `getPackageDir()` API and passes it to the CLI as `PI_WEB_PI_PACKAGE_DIR`. Native service definitions retain that selection. Without an explicit selection, ordinary npm SDK resolution takes precedence; if no peer is locally resolvable, standalone commands can find an existing npm-installed `pi` executable on `PATH`. An invalid explicit selection is an error, not permission to silently select a different Pi or install one.
+
+Pi's managed installer (`https://pi.dev/install.sh`) uses a different layout. Its `pi` command is a shell script at `<agent dir>/bin/pi`. It runs the release named in `<agent dir>/install/current-version`, from `install/releases/<version>/node_modules/@earendil-works/pi-coding-agent`. PI WEB depends on that installer layout, which Pi does not document as a public interface, and follows it with only the checks needed to build a safe path:
+
+- A `pi` script on `PATH` with an `install/current-version` beside its directory selects the release named there. Without that file, it is an unsupported `pi` as before. An empty version, a version that is not a single directory name, or a missing release fails with an error naming the file and the expected SDK path.
+- `PI_WEB_PI_PACKAGE_DIR` may name the managed install root (`<agent dir>/install`). Each start then reads `current-version`, like Pi's own launcher.
+- `getPackageDir()` in managed Pi returns one release, and `pi update` deletes old releases. When a service definition would keep a release path whose install root has `current-version`, it keeps the install root instead. Before changing config or services, `pi-web install` runs the same selection a service start will run with the kept value, fails on any error, and prints the value and the Pi it currently selects.
+- A kept release path that no longer exists is not replaced with the current release. The error names the release and the install root to use instead.
 
 Standalone application code imports SDK values through `src/piSdk.ts` and AI helpers through `src/piAi.ts`. Their shared loader, `src/piRuntime.ts`, resolves the selected installation's public package exports using `import-meta-resolve`. It does not register a Node loader hook, rewrite other modules' imports, or assume private SDK file paths. Pi's own dependencies and extension loader retain their ordinary resolution and module identity. Keep runtime imports behind this boundary; canonical type-only imports are safe because they disappear from emitted JavaScript. The canonical SDK peers are optional with `"*"` ranges, and there is no runtime version gate. Development dependencies support the checkout's tests and typechecking rather than provisioning a published runtime.
 
