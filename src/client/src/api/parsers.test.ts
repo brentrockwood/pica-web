@@ -105,6 +105,16 @@ describe("API parsers", () => {
     expect(parsePiWebConfigResponse(response)).toMatchObject({ config: { sessionArchive }, effectiveConfig: { sessionArchive } });
   });
 
+  it("preserves and validates gateway localization defaults in both response fields", () => {
+    const defaultLocalization = { language: "fr", formatLocale: "de-DE", timeZone: "UTC", hourCycle: "h23" };
+    const response = { path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false } };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      expect(parsePiWebConfigResponse({ ...response, [field]: { defaultLocalization } })[field]).toEqual({ defaultLocalization });
+      expect(() => parsePiWebConfigResponse({ ...response, [field]: { defaultLocalization: { timeZone: "Invalid/Zone" } } })).toThrow("PI WEB config defaultLocalization");
+    }
+  });
+
   it("preserves theme defaults and rejects malformed theme data", () => {
     const defaultTheme = { themeId: "themes:pi-web-light", auto: false };
     const response = {
@@ -566,6 +576,22 @@ describe("API parsers", () => {
     });
   });
 
+  it("preserves known presentation metadata across startup, session and global wire boundaries", () => {
+    const base = { sessionId: "test", phase: "active", label: "raw fallback", detail: "raw detail", at: "now" };
+    const startup = { ...base, startupPresentation: { intent: "create", stage: "extensions", catalogRefreshing: true } };
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity: startup })).toEqual({ type: "session.startup", activity: startup });
+    for (const runtimePresentation of [{ kind: "runningTool" }, { kind: "model", value: "raw-model" }, { kind: "compactionFailed", detailKind: "compactionFailed" }]) {
+      const activity = { ...base, runtimePresentation };
+      const event = { type: "activity.update", activity };
+      expect(parseSessionStreamEvent(event)).toEqual(event);
+      expect(parseRealtimeStreamEvent(event)).toEqual(event);
+    }
+    for (const runtimePresentation of [null, "invalid", { kind: "future" }, { kind: "model", value: 3 }, { kind: "runningTool", detailKind: "future" }]) {
+      expect(parseSessionStreamEvent({ type: "activity.update", activity: { ...base, runtimePresentation } })).toEqual({ type: "activity.update", activity: base });
+    }
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...base, startupPresentation: { intent: "create", stage: "future", catalogRefreshing: true } } })).toEqual({ type: "session.startup", activity: base });
+  });
+
   it("carries the startup marker so an opening session is not mistaken for a working one", () => {
     const activity = { sessionId: "session-1", phase: "active", label: "Opening session", detail: "Starting the Pi session", at: "2026-07-20T00:00:01.000Z", startup: true };
 
@@ -862,6 +888,16 @@ describe("API parsers", () => {
     ]);
   });
 
+  it("keeps known warning provenance and ignores malformed or future cosmetic metadata", () => {
+    const warning = { severity: "warning", message: "English fallback", dismiss: { id: "opaque-id" } };
+    const presentations = [{ kind: "anthropicSubscriptionAuth" }, { kind: "future" }, null, [], "invalid", { kind: 1 }];
+    const parsed = parseSessionStatus({ ...statusWire(), warnings: presentations.map((presentation) => ({ ...warning, presentation })) });
+    expect(parsed.warnings).toEqual([
+      { ...warning, presentation: { kind: "anthropicSubscriptionAuth" } },
+      ...presentations.slice(1).map(() => warning),
+    ]);
+  });
+
   it("omits warnings entirely when the field is absent", () => {
     const parsed = parseSessionStatus({
       sessionId: "s1",
@@ -941,6 +977,25 @@ describe("API parsers", () => {
       removal: { actionLabel: "Remove workspace", confirmation: "Remove secondary?", precondition: "v1.confirmed" },
       effectiveConfig: {},
     });
+  });
+
+  it.each([
+    { kind: "gitWorktree", label: "review", path: "/repo/review" },
+    { kind: "future" },
+    { kind: "gitWorktree", label: 42, path: "/repo/review" },
+    null,
+  ])("retains valid optional removal localization and ignores unknown cosmetics: %j", (localization) => {
+    const removal = parseWorkspace({
+      id: "w1", projectId: "p1", path: "/repo/review", label: "review", isMain: false,
+      removal: { actionLabel: "Delete workspace", confirmation: "Raw confirmation", precondition: "v1.token", localization },
+      effectiveConfig: {},
+    }).removal;
+    expect(removal?.confirmation).toBe("Raw confirmation");
+    expect(removal?.precondition).toBe("v1.token");
+    if (localization?.kind === "gitWorktree" && typeof localization.label === "string") {
+      expect(removal?.localization).toEqual(localization);
+      expect(Object.isFrozen(removal?.localization)).toBe(true);
+    } else expect(removal).not.toHaveProperty("localization");
   });
 
   it("freezes host-owned workspace snapshots recursively", () => {
@@ -1185,6 +1240,27 @@ describe("API parsers", () => {
     expect(() => parseSessionTreeForkResult({ cancelled: true, session })).toThrow("session");
     expect(() => parseSessionTreeForkResult({ cancelled: true, promptDraft: "wrong branch" })).toThrow("promptDraft");
     expect(() => parseSessionTreeForkResult({ session })).toThrow("cancelled");
+  });
+
+  it.each([
+    { kind: "compactionCancelled" }, { kind: "automaticCompactionCancelled" }, { kind: "compactionFailed" },
+    { kind: "future" }, { kind: 42 }, null, [], "compactionFailed",
+  ].map((presentation) => ({ presentation })))("preserves known notification provenance and ignores cosmetic future/malformed metadata $presentation", ({ presentation }) => {
+    const inbox = notificationInboxWire();
+    const notification = { ...notificationWire(1), presentation };
+    const expected = presentation !== null && !Array.isArray(presentation) && typeof presentation === "object"
+      && typeof presentation.kind === "string" && ["compactionCancelled", "automaticCompactionCancelled", "compactionFailed"].includes(presentation.kind)
+      ? presentation : undefined;
+    expect(parseSessionNotificationInboxSnapshot({ ...inbox, notifications: [notification] }).notifications[0]?.presentation).toEqual(expected);
+    const event = {
+      type: "notifications.inbox", daemonInstanceId: "daemon-a", catalogRevision: 2,
+      summary: inbox.summary, dismissThrough: inbox.dismissThrough,
+      delta: { kind: "added", notification },
+    };
+    const parsed = parseSessionNotificationInboxEvent(event);
+    if (parsed.delta.kind !== "added") throw new Error("Expected added notification");
+    expect(parsed.delta.notification.presentation).toEqual(expected);
+    expect(parsed.delta.notification.message).toBe(notification.message);
   });
 
   it("strictly parses selected notification snapshots and realtime events", () => {

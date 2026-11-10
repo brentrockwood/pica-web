@@ -1,3 +1,7 @@
+import type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+export type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+export type { TerminalTitlePresentation } from "./shared/terminalTitlePresentation.js";
+
 import type {
   PluginBackend,
   JsonObject,
@@ -125,6 +129,8 @@ export type ServerPluginNoticeScope =
 
 /** Plugin-authored notice data. The host supplies the immutable source identity. */
 export interface ServerPluginNoticeInput {
+  /** Optional PI WEB-generated presentation; unknown metadata retains the raw message. Diagnostic detail is limited to 4096 code units. */
+  readonly presentation?: ServerNoticePresentation;
   readonly severity: ServerPluginNoticeSeverity;
   /** Non-empty human-readable text, limited to 4 KiB of UTF-8. */
   readonly message: string;
@@ -480,6 +486,8 @@ export interface ProviderRemoveContext {
  * approves the operation; it does not mean removal has completed.
  */
 export interface WorkspaceRemovePlan {
+  /** Optional generated title provenance; unknown metadata retains the authored title. */
+  titlePresentation?: import("./shared/terminalTitlePresentation.js").TerminalTitlePresentation;
   /** Human-readable title for the host-owned terminal run. */
   title: string;
   /**

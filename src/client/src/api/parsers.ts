@@ -2,14 +2,22 @@ import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot, type MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { JsonValue, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 
+import { parseServerNoticePresentation } from "../../../shared/serverNoticePresentation";
+import { parseWorkspaceRemovalLocalization } from "../../../shared/workspaceRemovalPresentation";
+import { parseCommandResultPresentation } from "../../../shared/commandResultPresentation";
+import { parseCommandOutputPresentation } from "../../../shared/commandOutputPresentation";
+import { parseSessionNotificationPresentation } from "../../../shared/sessionNotificationPresentation";
+import { parseSessionTreeSummaryPresentation } from "../../../shared/sessionTreeSummaryPresentation";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
 import { parseDeprecatedAgentInputs } from "../../../shared/piWebStatusParsing";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS, pluginDisableRecoveryCommand } from "../../../shared/pluginRecoveryCommands";
 import { parseServerNoticeScope } from "../../../shared/serverNoticeContract";
 import { requireDefaultThemePreference } from "../../../shared/themePreference";
+import { requireDefaultLocalization } from "../../../shared/defaultLocalization";
 import { requireDefaultStreamingBehavior } from "../../../shared/streamingBehavior";
 import { isKnownThinkingLevel } from "../../../shared/thinkingLevels";
 import { requireInstallationName } from "../../../shared/installationName";
+import { parseRuntimeActivityPresentation } from "../../../shared/sessionActivityPresentation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -242,6 +250,7 @@ function optionalWorkspaceRemovalPresentation(value: unknown): Workspace["remova
     actionLabel: requireNonEmptyString(value, "actionLabel"),
     confirmation: requireNonEmptyString(value, "confirmation"),
     precondition: requireNonEmptyString(value, "precondition"),
+    ...optionalField("localization", parseWorkspaceRemovalLocalization(value["localization"])),
   });
 }
 
@@ -320,6 +329,8 @@ function parseSessionWarning(value: unknown): SessionWarning {
   return {
     severity: parseSessionWarningSeverity(record["severity"]),
     message: requireString(record, "message"),
+    ...(isRecord(record["presentation"]) && record["presentation"]["kind"] === "anthropicSubscriptionAuth"
+      ? { presentation: { kind: "anthropicSubscriptionAuth" as const } } : {}),
     ...optionalField("source", optionalString(record, "source")),
     ...optionalField("path", optionalString(record, "path")),
     ...(dismiss === undefined ? {} : { dismiss }),
@@ -644,7 +655,16 @@ function parseSessionActivity(value: unknown): SessionActivity {
     ...optionalField("detail", optionalString(record, "detail")),
     at: requireNonEmptyString(record, "at"),
     ...optionalField("startup", optionalActivityStartupMarker(record)),
+    ...optionalField("startupPresentation", parseStartupPresentation(record["startupPresentation"])),
+    ...optionalField("runtimePresentation", parseRuntimeActivityPresentation(record["runtimePresentation"])),
   };
+}
+
+function parseStartupPresentation(value: unknown): SessionActivity["startupPresentation"] {
+  if (!isRecord(value)) return undefined;
+  const { intent, stage, catalogRefreshing } = value;
+  if ((intent !== "create" && intent !== "open") || (stage !== "runtime" && stage !== "extensions") || typeof catalogRefreshing !== "boolean") return undefined;
+  return { intent, stage, catalogRefreshing };
 }
 
 /**
@@ -809,6 +829,7 @@ function parseCommandOutputEvent(record: Record<string, unknown>): Extract<Sessi
     type: "command.output",
     level,
     message: requireString(record, "message"),
+    ...optionalField("presentation", parseCommandOutputPresentation(record["presentation"])),
   };
 }
 
@@ -840,6 +861,7 @@ export function parseServerNoticeEvent(value: unknown): ServerNoticeEvent {
 
 function parseServerNotice(value: unknown): ServerNotice {
   const record = requireRecord(value);
+  const presentation = parseServerNoticePresentation(record["presentation"]);
   const createdAt = requireNonEmptyString(record, "createdAt");
   if (!Number.isFinite(Date.parse(createdAt))) throw new Error("Invalid server notice creation time");
   const source = optionalString(record, "source");
@@ -848,6 +870,7 @@ function parseServerNotice(value: unknown): ServerNotice {
   return {
     id: requireNonEmptyString(record, "id"),
     severity: parseServerNoticeSeverity(record["severity"]),
+    ...optionalField("presentation", presentation),
     message: requireString(record, "message"),
     createdAt,
     ...optionalField("source", source),
@@ -985,6 +1008,7 @@ function parseSessionNotification(value: unknown): SessionNotification {
   return {
     id: requireNonEmptyString(record, "id"),
     message,
+    ...optionalField("presentation", parseSessionNotificationPresentation(record["presentation"])),
     truncated: requireBoolean(record, "truncated"),
     severity: parseSessionNotificationSeverity(record["severity"]),
     receivedAt,
@@ -1491,6 +1515,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("defaultTheme", record["defaultTheme"] === undefined ? undefined : requireDefaultThemePreference(record["defaultTheme"], "response")),
     ...optionalField("defaultStreamingBehavior", record["defaultStreamingBehavior"] === undefined ? undefined : requireDefaultStreamingBehavior(record["defaultStreamingBehavior"], "response")),
+    ...optionalField("defaultLocalization", record["defaultLocalization"] === undefined ? undefined : requireDefaultLocalization(record["defaultLocalization"], "response")),
     ...optionalField("quietMode", optionalBoolean(record, "quietMode")),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
     ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),
@@ -1964,10 +1989,10 @@ function parsePiWebStatusSeverity(value: unknown): PiWebStatusSeverity {
 export function parseCommandResult(value: unknown): CommandResult {
   const record = requireRecord(value);
   const type = requireString(record, "type");
-  if (type === "unsupported") return { type, message: requireString(record, "message") };
-  if (type === "select") return { type, requestId: requireString(record, "requestId"), title: requireString(record, "title"), options: arrayOf(parseCommandOption)(record["options"]) };
+  if (type === "unsupported") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), message: requireString(record, "message") };
+  if (type === "select") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), requestId: requireString(record, "requestId"), title: requireString(record, "title"), options: arrayOf(parseCommandOption)(record["options"]) };
   if (type === "tree") return { type, tree: parseSessionTreeSnapshot(record["tree"]) };
-  if (type === "done") return { type, ...optionalField("message", optionalString(record, "message")), ...optionalSession(record["session"]), ...optionalField("promptDraft", optionalString(record, "promptDraft")) };
+  if (type === "done") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), ...optionalField("message", optionalString(record, "message")), ...optionalSession(record["session"]), ...optionalField("promptDraft", optionalString(record, "promptDraft")) };
   throw new Error("Invalid command result type");
 }
 
@@ -1992,6 +2017,7 @@ function parseSessionTreeNode(value: unknown): SessionTreeNode {
     parentId: requireNullableString(record, "parentId"),
     kind: parseSessionTreeNodeKind(record["kind"]),
     summary: requireString(record, "summary"),
+    ...optionalField("summaryPresentation", parseSessionTreeSummaryPresentation(record["summaryPresentation"])),
     ...optionalField("timestamp", optionalString(record, "timestamp")),
     ...optionalField("label", optionalString(record, "label")),
   };

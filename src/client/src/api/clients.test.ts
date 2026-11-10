@@ -262,6 +262,15 @@ describe("Pi package API", () => {
 });
 
 describe("session API compatibility", () => {
+  it("marks unread through encoded machine and session routes", async () => {
+    const snapshot = { catalogId: "catalog-a", catalogRevision: 1, sessions: [] };
+    const fetchMock = stubSequenceFetch([jsonResponse(snapshot)]);
+    await expect(sessionsApi.markUnread({ id: "s /?", cwd: "/repo" }, "remote a")).resolves.toEqual(snapshot);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/sessions/s%20%2F%3F/unread");
+    expect(fetchCall(fetchMock, 0)[1]?.method).toBe("POST");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual({ cwd: "/repo" });
+  });
+
   it("reads and acknowledges daemon-owned unread state through encoded machine routes", async () => {
     const unread = {
       catalogId: "catalog-a",
@@ -575,6 +584,18 @@ describe("session API compatibility", () => {
     await sessionsApi.transcriptSnapshot({ id: "s-1", cwd: "/repo" }, options);
 
     expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/local/sessions/s-1/transcript-snapshot?cwd=%2Frepo&media=reference");
+  });
+
+  it("passes transcript cancellation to HTTP without adding transport options to the query", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(new Promise(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const pending = sessionsApi.transcriptSnapshot({ id: "s-1", cwd: "/repo" }, { limit: 25, signal: controller.signal, timeoutMs: 1000 });
+    controller.abort();
+    await expect(pending).rejects.toBe(controller.signal.reason);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/local/sessions/s-1/transcript-snapshot?cwd=%2Frepo&limit=25&media=reference");
+    expect(fetchCall(fetchMock, 0)[1]?.signal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("rejects an incomplete transcript snapshot instead of returning a partial response", async () => {

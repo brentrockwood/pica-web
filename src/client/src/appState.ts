@@ -1,3 +1,4 @@
+import type { PendingPrompt } from "./pendingPrompts";
 import type { AuthProviderOption, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace, WorkspaceProviderResolution } from "./api";
 import type { ChatLine } from "./chatTypes";
 import type { MachineStatusSnapshot } from "../../shared/machineStatus";
@@ -20,12 +21,18 @@ export interface AppState {
   workspaces: Workspace[];
   sessions: SessionInfo[];
   messages: ChatLine[];
+  /** Selected conversation delivery/freshness, independent of runtime activity. */
+  conversationSync?: "catching-up" | "checked" | "stale" | "interrupted" | undefined;
+  /** Time of the last accepted history snapshot, not a guarantee of live delivery. */
+  conversationRefreshedAt?: number | undefined;
   messagePageStart: number;
   messagePageEnd: number;
   messagePageTotal: number;
   isLoadingEarlierMessages: boolean;
   /** Sessions with a prompt upload in flight, keyed by sessionId (client-owned). */
   sendingPrompts: Record<string, true>;
+  /** Browser-local submissions keyed by machine/session; not transcript history. */
+  pendingPrompts: Record<string, PendingPrompt[]>;
   /** Client-side queued sends waiting for a just-created backend session, keyed by sessionId. */
   clientQueuedSessionMessages: Record<string, QueuedSessionMessage[]>;
   /** Client-initiated session creation requests waiting for the server. */
@@ -96,7 +103,7 @@ export interface ClosedExtensionDialog {
 /** `machineId` stays bound to the machine selected when the auth operation began. */
 export type AuthDialogState =
   | { step: "method"; machineId: string }
-  | { step: "starting"; machineId: string; title: string; error?: string }
+  | { step: "starting"; machineId: string; mode: "login" | "logout"; error?: string }
   | { step: "providers"; mode: "login"; machineId: string; authType?: "oauth" | "api_key"; providers: AuthProviderOption[] }
   | { step: "oauth"; flow: OAuthFlowState; machineId: string; responding?: boolean; inputValue?: string; error?: string }
   | { step: "logout"; machineId: string; providers: AuthProviderOption[] };
@@ -138,6 +145,7 @@ export function initialAppState(): AppState {
     messagePageTotal: 0,
     isLoadingEarlierMessages: false,
     sendingPrompts: {},
+    pendingPrompts: {},
     clientQueuedSessionMessages: {},
     startingSessionCount: 0,
     isLoadingProjects: false,

@@ -36,6 +36,8 @@ import { NavigationDialog } from "./appShell/NavigationDialog";
 import { deepActiveElement } from "./modalLayerRegistry";
 import { AppShellController } from "../appShell/appShellController";
 import { configResponse } from "./SettingsDialog.testSupport";
+import { localization } from "../localization/browser";
+import { appFeedbackMessages } from "../appFeedbackMessages";
 
 // Exercise the real shell and child rendering without starting API/socket
 // orchestration. The inherited Lit controllers and update lifecycle still run.
@@ -70,8 +72,10 @@ function panelToggle(app: PiWebApp, label: string): HTMLButtonElement {
   throw new Error(`Expected ${label}`);
 }
 
-afterEach(() => {
+afterEach(async () => {
   document.body.replaceChildren();
+  vi.useRealTimers();
+  await localization.setPreferences({ language: "en", formatLocale: "en" });
   clearStagedAttachments(machineSessionKey("local", session.id));
   localStorage.clear();
   sessionStorage.clear();
@@ -81,6 +85,27 @@ afterEach(() => {
 });
 
 describe("application rendering boundaries", () => {
+  it("places sustained stale-chat feedback above the conversation, outside the composer, and hides it after recovery", async () => {
+    vi.useFakeTimers();
+    const app = await mountApp({ selectedWorkspace: workspace, selectedSession: session, sessions: [session], mainView: "chat", conversationSync: "stale" });
+    await settle(app);
+    const notice = app.shadowRoot?.querySelector("conversation-sync-notice");
+    const layout = app.shadowRoot?.querySelector("conversation-layout");
+    const composer = app.shadowRoot?.querySelector("prompt-editor");
+    if (!(notice instanceof LitElement) || layout === null || layout === undefined) throw new Error("Expected conversation and notice");
+    expect(notice.nextElementSibling).toBe(layout);
+    expect(notice.parentElement).toBe(layout.parentElement);
+    expect(app.shadowRoot?.querySelector(".composer-area conversation-sync-notice")).toBeNull();
+    expect(notice.shadowRoot?.querySelector("[role], button")).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await notice.updateComplete;
+    expect(notice.shadowRoot?.textContent).toContain("Chat may be out of date.");
+    patchState(app, { conversationSync: "checked" });
+    await settle(app);
+    expect(notice.shadowRoot?.querySelector("[role], button")).toBeNull();
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBe(composer);
+  });
+
   it("does not mount a restored mobile transcript until Chat is opened, and retains an already displayed chat across tabs", async () => {
     const app = new RenderOnlyApp();
     const shell: unknown = Reflect.get(app, "appShell");
@@ -224,8 +249,8 @@ describe("application rendering boundaries", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
-  it("switches a wide shell to tabbed two-column mode and restores three columns", async () => {
-    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView: "chat" }, () => html`<p>Tool content</p>`);
+  it.each(["chat", "workspace"] as const)("collapses a wide workspace panel to Chat and restores three columns from %s", async (mainView) => {
+    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView }, () => html`<p>Tool content</p>`);
     const shell: unknown = Reflect.get(app, "appShell");
     if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
     shell.isDesktopSideBySideLayout = true;
@@ -614,6 +639,47 @@ describe("application rendering boundaries", () => {
     expect(layout?.querySelector('[slot="status"]')).toBeInstanceOf(StatusBar);
     await layout?.updateComplete;
     expect(layout?.shadowRoot?.querySelector(".activity-text")?.textContent).toBe("running");
+  });
+
+  it("updates the cross-instance alert, accessible name and dismissal control live in both pseudo modes", async () => {
+    const app = await mountApp({ selectedSession: session, status: { ...sessionStatus(session.id), recentlyActiveElsewhere: true } });
+    await settle(app);
+    const editor = promptEditor(app);
+    const notice = app.shadowRoot?.querySelector(".composer-activity-notice");
+    if (notice == null) throw new Error("Missing activity alert");
+    const button = notice.querySelector("button");
+    if (button == null) throw new Error("Missing acknowledgement button");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      await settle(app);
+      expect(notice.getAttribute("aria-label")).toBe(appFeedbackMessages.t("activityLabel"));
+      expect(notice.querySelector("p")?.textContent).toBe(appFeedbackMessages.t("activityNotice"));
+      expect(button.textContent).toBe(appFeedbackMessages.t("dismissActivity"));
+      expect(button.textContent).not.toBe("Dismiss and continue");
+      expect(editor.disabled).toBe(true);
+    }
+    button.click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBeNull();
+    expect(editor.disabled).toBe(false);
+  });
+
+  it("updates deferred conversation-loading guidance live without mounting the transcript", async () => {
+    manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(controller instanceof SessionController)) throw new Error("Missing sessions");
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockReturnValue(true);
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, mainView: "chat" });
+    document.body.append(app);
+    await settle(app);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      await settle(app);
+      expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe(appFeedbackMessages.t("loadingConversation"));
+      expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).not.toBe("Loading conversation…");
+      expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    }
   });
 
   it("keeps the activity notice in the blocked composer until dismissal without losing drafts or attachments", async () => {

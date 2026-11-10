@@ -1,3 +1,4 @@
+import { argumentSummaryPresentation } from "./chatPresentation";
 import { appendText, appendThinking, askUserQuestionFromToolDetails, askUserRecordFromToolDetails, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage, withMessageMeta } from "./chatMessages";
 import type { ChatLine, ToolExecutionPart } from "./chatTypes";
 import { appendShellChunk, finalizeShellMessage, shellStartMessage } from "./shellMessages";
@@ -74,7 +75,10 @@ export function applyTranscriptEvent(messages: ChatLine[], event: SessionUiEvent
   if (event.type === "shell.start") return [...messages, shellStartMessage(event.command, event.excludeFromContext)];
   if (event.type === "shell.chunk") return appendShellChunk(messages, event.chunk);
   if (event.type === "shell.end") return finalizeShellMessage(messages, event);
-  if (event.type === "command.output") return [...messages, textMessage(event.level === "error" ? "system" : "tool", event.message)];
+  if (event.type === "command.output") return [...messages, {
+    role: event.level === "error" ? "system" : "tool",
+    parts: [{ type: "text", text: event.message, ...(event.presentation === undefined ? {} : { presentation: event.presentation }) }],
+  }];
   if (event.type === "session.error") return [...messages, textMessage("system", event.message)];
   if (event.type === "message.end") return event.message === undefined ? undefined : applyFinalMessage(messages, event.message);
   return undefined;
@@ -172,6 +176,9 @@ function appendToolExecutionStart(messages: ChatLine[], event: Extract<SessionUi
     ...(event.toolCallId === "" ? {} : { toolCallId: event.toolCallId }),
     toolName: event.toolName,
     summary: event.summary || summarizeArgs(event.args),
+    // Core tool.start summaries are generated from these arguments by the server.
+    // Keep supplied text only as compatibility data, not translation identity.
+    ...argumentSummaryPresentation(event.args),
     ...(event.args === undefined ? {} : { args: event.args }),
     status: "running",
   };
@@ -215,6 +222,7 @@ function finalizeToolExecution(messages: ChatLine[], result: ToolResultUpdate, c
       ...(toolCallId === undefined || toolCallId === "" ? {} : { toolCallId }),
       toolName,
       summary: summarizeArgs(content),
+      ...argumentSummaryPresentation(content),
       status: isError ? "error" : "success",
       resultText: text,
       ...(content === undefined ? {} : { content }),
