@@ -173,6 +173,7 @@ export class ChatView extends LitElement {
    * disclosure changes.
    */
   @property({ type: Boolean }) quietMode = false;
+  @property({ type: Boolean }) showMessageTimestamps = false;
   @query(".chat") private chat?: HTMLDivElement;
   @query("pi-web-image-gallery-dialog") private imageGalleryDialog?: ImageGalleryDialog;
   @state() private followingLive = false;
@@ -558,6 +559,7 @@ export class ChatView extends LitElement {
         toggle: (key, event, defaultOpen) => { this.onDisclosureToggle(key, event, defaultOpen); },
       },
       metadata: {
+        timestamp: (message) => this.showMessageTimestamps && message.meta?.timestamp !== undefined ? formatMessageTimestamp(message.meta.timestamp) : undefined,
         expandedKey: this.expandedMetaKey,
         label: (message) => this.messageMetaLabel(message),
         expand: (key) => { this.expandedMetaKey = key; },

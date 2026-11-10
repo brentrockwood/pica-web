@@ -45,6 +45,8 @@ export default {
   machineSaved: message<{ name: string }>("Machine settings saved for {name}.", "Settings save outcome or failure; names and diagnostics are untranslated values"),
   themeSaved: message("Default theme saved. Saved browser choices are unchanged.", "Settings save outcome or failure; names and diagnostics are untranslated values"),
   themeFailure: message<{ error: string }>("Couldn't save the default theme: {error}", "Settings save outcome or failure; names and diagnostics are untranslated values"),
+  timestampsFailure: message<{ error: string }>("Couldn't save timestamps: {error}", "Timestamp setting save failure"),
+  timestampsSaved: message<{ enabled: string }>("{enabled, select, true {Timestamps are on.} other {Timestamps are off.}}", "Timestamp setting save outcome"),
   quietFailure: message<{ error: string }>("Couldn't save quiet mode: {error}", "Settings save outcome or failure; names and diagnostics are untranslated values"),
   shortcutsSaved: message("Keyboard settings saved.", "Settings save outcome or failure; names and diagnostics are untranslated values"),
   gatewaySaved: message("Gateway settings saved. Restart the web service to apply address changes.", "Settings save outcome or failure; names and diagnostics are untranslated values"),

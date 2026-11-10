@@ -93,6 +93,7 @@ function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebCo
     ...(baseConfig.defaultLocalization === undefined ? {} : { defaultLocalization: baseConfig.defaultLocalization }),
     ...(baseConfig.defaultStreamingBehavior === undefined ? {} : { defaultStreamingBehavior: baseConfig.defaultStreamingBehavior }),
     ...(baseConfig.quietMode === undefined ? {} : { quietMode: baseConfig.quietMode }),
+    ...(baseConfig.showMessageTimestamps === undefined ? {} : { showMessageTimestamps: baseConfig.showMessageTimestamps }),
     ...(baseConfig.plugins === undefined ? {} : { plugins: baseConfig.plugins }),
     ...(baseConfig.pathAccess === undefined ? {} : { pathAccess: baseConfig.pathAccess }),
     ...(baseConfig.uploads === undefined ? {} : { uploads: baseConfig.uploads }),

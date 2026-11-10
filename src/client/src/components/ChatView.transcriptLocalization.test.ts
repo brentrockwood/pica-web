@@ -41,6 +41,7 @@ it("updates metadata, role headings and part disclosures without replacing contr
   }) });
   const timestamp = "2026-10-15T20:10:00Z";
   const view = new ChatView();
+  view.showMessageTimestamps = true;
   view.behaviors = { ...view.behaviors, followTail: false, rememberPosition: false };
   view.messages = [{ role: "assistant", entryId: "reply", meta: { timestamp, model: { id: "Raw <model>" }, thinkingLevel: "high" }, parts: [
     { type: "thinking", text: "Raw thinking <tag> العربية" }, { type: "text", text: "Raw reply" },
@@ -81,6 +82,7 @@ it("updates metadata, role headings and part disclosures without replacing contr
     expect(root.querySelector("skill, model, .skill-read path")).toBeNull();
   }
   const expectedDate = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "medium", timeZone: "Asia/Tokyo", hourCycle: "h23" }).format(new Date(timestamp));
+  expect(root.querySelector("time")?.textContent).toBe(expectedDate);
   expect(chatMessageMetadataLabel(required(view.messages[0]))).toBe(localization.list([expectedDate, "Raw <model>", "high"]));
   expect(chatMessageMetadataLabel({ role: "user", parts: [], meta: { timestamp: "invalid" } })).toBe(messages.t("noMetadata"));
   thinking.open = false; thinking.dispatchEvent(new Event("toggle")); await view.updateComplete;

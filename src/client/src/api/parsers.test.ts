@@ -159,6 +159,23 @@ describe("API parsers", () => {
     }
   });
 
+  it("preserves timestamps and rejects invalid values in both config fields", () => {
+    const response = {
+      path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false },
+    };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      expect(parsePiWebConfigResponse(response)[field]).not.toHaveProperty("showMessageTimestamps");
+      for (const showMessageTimestamps of [true, false]) {
+        expect(parsePiWebConfigResponse({ ...response, [field]: { showMessageTimestamps } })[field]).toEqual({ showMessageTimestamps });
+      }
+      for (const showMessageTimestamps of ["true", 1, null, {}, []]) {
+        expect(() => parsePiWebConfigResponse({ ...response, [field]: { showMessageTimestamps } })).toThrow("showMessageTimestamps");
+      }
+    }
+  });
+
+
   it("preserves naming configuration and rejects malformed naming fields", () => {
     const response = {
       path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},

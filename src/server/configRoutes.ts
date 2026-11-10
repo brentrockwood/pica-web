@@ -160,6 +160,10 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
     if (typeof value["quietMode"] !== "boolean") throw new Error("PI WEB config quietMode must be a boolean");
     config.quietMode = value["quietMode"];
   }
+  if (value["showMessageTimestamps"] !== undefined) {
+    if (typeof value["showMessageTimestamps"] !== "boolean") throw new Error("PI WEB config showMessageTimestamps must be a boolean");
+    config.showMessageTimestamps = value["showMessageTimestamps"];
+  }
   if (value["sessionNaming"] !== undefined) config.sessionNaming = parseSessionNamingConfig(value["sessionNaming"], "request");
   if (value["sessionArchive"] !== undefined) config.sessionArchive = parseSessionArchiveConfig(value["sessionArchive"], "request");
   if (plugins !== undefined) config.plugins = parsePluginsRequest(plugins);

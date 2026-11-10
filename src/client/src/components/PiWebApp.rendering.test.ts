@@ -1175,6 +1175,25 @@ it("applies the quiet-mode gateway setting to the rendered transcript", async ()
   expect(chat()?.quietMode).toBe(true);
 });
 
+it("applies the timestamp gateway setting to the rendered transcript", async () => {
+  const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], selectedSession: session, sessions: [session], mainView: "chat" });
+  await settle(app);
+  const chat = (): ChatView | null | undefined => app.shadowRoot?.querySelector("chat-view");
+  expect(chat()).toBeInstanceOf(ChatView);
+  expect(chat()?.showMessageTimestamps).toBe(false);
+
+  vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ showMessageTimestamps: true }));
+  const loadConfig: unknown = Reflect.get(app, "loadClientConfig");
+  if (typeof loadConfig !== "function") throw new Error("Expected loadClientConfig");
+  await Reflect.apply(loadConfig, app, []);
+  await settle(app);
+  expect(chat()?.showMessageTimestamps).toBe(true);
+
+  patchState(app, { selectedSession: { ...session, id: "another-session" } });
+  await settle(app);
+  expect(chat()?.showMessageTimestamps).toBe(true);
+});
+
 function namedButton(root: ParentNode | null | undefined, name: string): HTMLButtonElement {
   const button = [...root?.querySelectorAll<HTMLButtonElement>("button") ?? []]
     .find((candidate) => (candidate.getAttribute("aria-label") ?? candidate.textContent.trim()) === name);

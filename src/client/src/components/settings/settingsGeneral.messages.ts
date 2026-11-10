@@ -10,6 +10,8 @@ export default {
   chatHelp: message("Choose how much agent activity the transcript shows before you open it.", "Chat display guidance"),
   loadingGateway: message("Loading gateway configuration…", "Gateway configuration loading status"),
   chatUnavailable: message("Chat display settings are unavailable. Choose Refresh settings to try again.", "Chat display unavailable recovery"),
+  timestamps: message("Show timestamps", "Message timestamp checkbox"),
+  timestampsHelp: message("Show timestamps on chat messages. Off by default.", "Message timestamp guidance"),
   quiet: message("Quiet mode", "Transcript quiet mode checkbox"),
   quietHelp: message("Collapse tool calls, thinking, and other agent activity into one “events” line you can expand. Off by default.", "Transcript quiet mode guidance"),
   gatewayAria: message("Gateway server settings", "Gateway section accessible name"),
