@@ -186,7 +186,7 @@ Process restarts depend on the key:
 - `plugins`: browser-only changes need a tab reload. Server-backed enablement, settings, or package changes require a manual session-daemon restart, then a tab reload. See [Project plugin settings](#project-plugin-settings).
 - `serverPlugins.safeStart`: persistent offline recovery state applied before server-plugin discovery/import on the next sessiond start; use the `pi-web plugins safe-start ...` CLI rather than hand-editing it.
 - Pi package changes: use `/reload` in each idle session for ordinary extensions, skills, templates, and themes. Packages containing server plugins require a manual session-daemon restart and browser reload. Global provider registration or connection changes also require a daemon restart; model-list-only updates do not. See [Pi extension provider baseline](#pi-extension-provider-baseline).
-- `shortcuts` / `defaultStreamingBehavior` / `quietMode`: saved settings apply in the browser after config refresh/save; no service restart.
+- `shortcuts` / `defaultStreamingBehavior` / `quietMode` / `showMessageTimestamps`: saved settings apply in the browser after config refresh/save; no service restart.
 - `defaultTheme`: applies after settings save or browser config refresh when the browser inherits it or environment policy enforces it; no service restart.
 
 ### Localization defaults
@@ -216,6 +216,18 @@ Turn it on in **Settings → General → Chat display → Quiet mode**. It is of
 ```json
 { "quietMode": true }
 ```
+
+### Message timestamps
+
+Turn on **Settings → General → Chat display → Show timestamps** to show timestamps on chat messages. The global gateway boolean `showMessageTimestamps` defaults to `false`. Devices share this setting; it is not project-local and needs no service restart. `PI_WEB_SHOW_MESSAGE_TIMESTAMPS` enforces the value and locks the control. Reset removes the saved override, exposing deployment defaults or the built-in off value.
+
+### Navigation activity and sorting
+
+Projects, workspaces, and sessions show relative last-activity times; hover over a time for the exact date. Lists default to **Recent activity** and also offer **Name**. Projects and workspaces offer **Manual** to use their saved order and Move up/down actions. Pinned session trees remain above unpinned sessions.
+
+Automatic reordering pauses while a list or its action menu is hovered or focused. It applies the latest order after both leave; timestamps keep updating. Sort choices last for the mounted list and return to Recent activity after a page reload.
+
+Activity uses persisted session-file modification times. Each workspace takes its latest session time, and each project takes its latest workspace time, including inactive sessions. Ordinary workspace file edits do not count. Updates can take about 15 seconds; missing activity has no timestamp and sorts after known activity. Upgrading to this feature requires a manual session-daemon restart for project/workspace activity. Older daemons still allow session timestamps from the session listing.
 
 ## Global config example
 
@@ -328,6 +340,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Browser localization defaults | `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle` | `PI_WEB_DEFAULT_LOCALIZATION` (JSON object) | Gateway global | Not project-local; device choices win per field unless env-enforced | Reload tab; no service restart |
 | Streaming send default | `defaultStreamingBehavior` | `PI_WEB_DEFAULT_STREAMING_BEHAVIOR` | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to `steer` |
 | Quiet mode | `quietMode` | `PI_WEB_QUIET_MODE` | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to off |
+| Show timestamps | `showMessageTimestamps` | `PI_WEB_SHOW_MESSAGE_TIMESTAMPS` | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to off |
 | Keyboard shortcuts | `shortcuts.<actionId>` | `PI_WEB_SHORTCUTS` (JSON object) | Global | Not supported locally | Applies after settings save/config refresh |
 | Project config version | `version` | — | Project | Project-local only; must be `1` when present | Next project-config read |
 | **Runtime-only environment variables** |  |  |  |  |  |

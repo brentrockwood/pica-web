@@ -294,6 +294,7 @@ export class AppNavigationPanel extends LitElement {
         .statuses=${this.sessionStatuses}
         .activities=${this.sessionActivities}
         .sessionFlags=${this.selectedMachineStatusSnapshot()?.sessions}
+        .lastActivity=${this.selectedMachineStatusSnapshot()?.lastActivity?.sessions}
         .sending=${this.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
         .selected=${this.selectedSession}

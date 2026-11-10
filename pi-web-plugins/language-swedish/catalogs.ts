@@ -1,5 +1,11 @@
 // Full namespaces follow the host and bundled plugins' registerMessages calls.
 const catalogs: Record<string, Record<string, string>> = {
+  "core.listActivity": {
+    "sort": "Sorteringsordning",
+    "recent": "Senaste aktivitet",
+    "name": "Namn",
+    "manual": "Manuell",
+  },
   // src/client/src/appFeedback.messages.ts
   "core.appFeedback": {
     "navigationOrderFailed": "Kunde inte läsa in eller spara navigeringsordningen: {detail}",
@@ -905,6 +911,8 @@ const catalogs: Record<string, Record<string, string>> = {
     "chatHelp": "Välj hur mycket agentaktivitet som visas i konversationen innan du fäller ut den.",
     "loadingGateway": "Läser in gatewaykonfiguration…",
     "chatUnavailable": "Chattvisningsinställningarna är inte tillgängliga. Välj Uppdatera inställningar för att försöka igen.",
+    "timestamps": "Visa tidsstämplar",
+    "timestampsHelp": "Visa tidsstämplar på chattmeddelanden. Av som standard.",
     "quiet": "Tyst läge",
     "quietHelp": "Fäll ihop verktygsanrop, resonemang och annan agentaktivitet till en utfällbar ”händelser”-rad. Av som standard.",
     "gatewayAria": "Gatewayserverns inställningar",
@@ -1261,6 +1269,8 @@ const catalogs: Record<string, Record<string, string>> = {
     "machineSaved": "Maskininställningar sparade för {name}.",
     "themeSaved": "Standardtemat har sparats. Sparade webbläsarval ändras inte.",
     "themeFailure": "Kunde inte spara standardtemat: {error}",
+    "timestampsFailure": "Kunde inte spara tidsstämplar: {error}",
+    "timestampsSaved": "{enabled, select, true {Tidsstämplar är på.} other {Tidsstämplar är av.}}",
     "quietFailure": "Kunde inte spara tyst läge: {error}",
     "shortcutsSaved": "Tangentbordsinställningarna har sparats.",
     "hostAccessConfirmTitle": "Blockera denna adress efter omstart?",

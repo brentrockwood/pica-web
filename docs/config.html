@@ -287,6 +287,13 @@
 <td>Settings save / browser config refresh; no restart</td>
 </tr>
 <tr>
+<th scope="row">Show timestamps<br><code>showMessageTimestamps</code></th>
+<td>Global gateway; not project-local</td>
+<td>Off</td>
+<td>Show timestamps on chat messages. Turn it on in Settings → General → Chat display. Devices share this setting. <code>PI_WEB_SHOW_MESSAGE_TIMESTAMPS</code> enforces the value and locks the control. Reset removes the saved override, exposing deployment defaults or the built-in off value.</td>
+<td>Settings save / browser config refresh; no restart</td>
+</tr>
+<tr>
 <th scope="row"><span id="shortcut-config" class="reference-anchor"></span>Keyboard bindings<br><code>shortcuts.&lt;actionId&gt;</code></th>
 <td>Gateway</td>
 <td>Built-in bindings</td>
@@ -319,6 +326,9 @@
 <pre><code>{ "defaultTheme": { "themeId": "themes:pi-web-dark", "auto": true } }</code></pre>
 <p>Use a theme contribution ID rather than a display name. Built-in IDs remain <code>themes:pi-web-dark</code>, <code>themes:pi-web-light</code>, <code>themes:classic</code>, <code>themes:paper</code>, and <code>themes:graphite</code> after migration to declarative packages.</p>
 </details>
+<h3 id="navigation-activity">Navigation activity and sorting</h3>
+<p>Projects, workspaces, and sessions show relative last-activity times; hover over a time for its exact date. Lists default to <strong>Recent activity</strong> and also offer <strong>Name</strong>. Projects and workspaces offer <strong>Manual</strong> for their saved order and Move up/down actions. Pinned session trees remain above unpinned sessions. Sort choices return to Recent activity after a page reload.</p>
+<p>Automatic reordering pauses while a list or its action menu is hovered or focused, then applies the latest order after both leave. Timestamps keep updating. Activity uses persisted session-file modification times, cascaded from sessions to workspaces to projects, including inactive sessions. Ordinary workspace file edits do not count. Updates can take about 15 seconds; missing activity has no timestamp and sorts after known activity. A manual session-daemon restart is required when upgrading to this feature; older daemons still provide session-list timestamps.</p>
 <h3 id="prompt-completions">Composer shortcuts (not config keys)</h3>
 <div class="table-scroll" role="region" aria-label="Completion triggers" tabindex="0">
 <table class="reference-table ">
@@ -994,6 +1004,7 @@ PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'</code></
 <td><code>0 | 1 | true | false</code></td>
 </tr>
 <tr><th scope="row"><code>quietMode</code></th><td><code>PI_WEB_QUIET_MODE</code></td><td><code>0 | 1 | true | false</code></td></tr>
+<tr><th scope="row"><code>showMessageTimestamps</code></th><td><code>PI_WEB_SHOW_MESSAGE_TIMESTAMPS</code></td><td><code>0 | 1 | true | false</code></td></tr>
 <tr><th scope="row"><code>defaultStreamingBehavior</code></th><td><code>PI_WEB_DEFAULT_STREAMING_BEHAVIOR</code></td><td><code>steer</code> or <code>followUp</code></td></tr>
 <tr><th scope="row"><code>extensionDialogsTimeoutMs</code></th><td><code>PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS</code></td><td>Integer milliseconds from <code>0</code> through <code>2147483647</code>; <code>0</code> waits forever</td></tr>
 <tr><th scope="row"><code>basePaths</code></th><td><code>PI_WEB_BASE_PATHS</code></td><td>JSON string array</td></tr>

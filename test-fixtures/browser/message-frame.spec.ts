@@ -93,6 +93,7 @@ test("system-message sender links wrap without covering actions or body content"
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
   const chat = page.locator("chat-view");
   await chat.evaluate(async (view: ChatView) => {
+    view.showMessageTimestamps = true;
     const sender = "01a1ad80-c7eb-7257-b8b6-de0db5391d26";
     const body = "**Review findings**\n\nCheck the timeout handler before merging.\n\n`retryCount` must remain bounded.";
     const content = `Message from session ${sender}:\n\n${body}`;
@@ -111,7 +112,11 @@ test("system-message sender links wrap without covering actions or body content"
     await page.evaluate((id) => window.overlayFixture.applyTheme(id), theme);
     await expect(message.locator("formatted-text")).toContainText("Review findings");
     await link.scrollIntoViewIfNeeded();
+    const timestamp = message.locator("time");
+    await expect(timestamp).toHaveAttribute("datetime", "2026-07-10T19:15:30.000Z");
+    const timestampBox = await box(timestamp);
     const headerBox = await box(message.locator(".message-frame-header"));
+    expect(timestampBox.y + timestampBox.height).toBeLessThanOrEqual(headerBox.y);
     const linkBox = await box(link);
     const triggerBox = await box(trigger);
     const bodyBox = await box(message.locator(".message-frame-body"));

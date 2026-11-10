@@ -2,6 +2,7 @@ import type { PiWebPlugin } from "@jmfederico/pi-web/plugin-api";
 
 // Register metadata eagerly; translation text loads only when Swedish is requested.
 const namespaces = [
+  "core.listActivity",
   "core.appFeedback",
   "core.commandResults",
   "core.appActions",

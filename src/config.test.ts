@@ -255,6 +255,30 @@ describe("PI WEB config persistence", () => {
     expect(await readFile(configPath, "utf8")).toBe(original);
   });
 
+  it.each([true, false])("round-trips and clears showMessageTimestamps %s", async (showMessageTimestamps) => {
+    savePiWebConfig({ showMessageTimestamps }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.showMessageTimestamps).toBe(showMessageTimestamps);
+    expect(effectivePiWebConfig(testOptions()).config.showMessageTimestamps).toBe(showMessageTimestamps);
+    savePiWebConfig({ ...loadPiWebConfig(testOptions()).config, port: 9000 }, testOptions());
+    expect(effectivePiWebConfig(testOptions()).config.showMessageTimestamps).toBe(showMessageTimestamps);
+
+    savePiWebConfig({ port: 9000 }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("showMessageTimestamps");
+    expect(JSON.parse(await readFile(configPath, "utf8"))).not.toHaveProperty("showMessageTimestamps");
+  });
+
+  it.each(["true", 1, null, {}, []])("rejects invalid showMessageTimestamps %j on load and save", async (value) => {
+    await writeFile(configPath, JSON.stringify({ showMessageTimestamps: value }), "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config showMessageTimestamps");
+    const original = await readFile(configPath, "utf8");
+    // Model an untyped caller at the persistence boundary.
+    const invalid = { showMessageTimestamps: value };
+    // @ts-expect-error Deliberately exercise invalid untyped config input.
+    expect(() => savePiWebConfig(invalid, testOptions())).toThrow("PI WEB config showMessageTimestamps");
+    expect(await readFile(configPath, "utf8")).toBe(original);
+  });
+
+
   it("rejects invalid plugin config", async () => {
     await writeFile(configPath, `${JSON.stringify({ plugins: { info: { enabled: "no" } } }, null, 2)}\n`, "utf8");
 
@@ -781,6 +805,7 @@ describe("environment setting resolution", () => {
   });
 
   it.each([
+    ["PI_WEB_SHOW_MESSAGE_TIMESTAMPS", "yes"], ["PI_WEB_SHOW_MESSAGE_TIMESTAMPS", ""],
     ["PI_WEB_SESSION_MESSAGES", "yes"], ["PI_WEB_SESSION_MESSAGES", ""],
     ["PI_WEB_QUIET_MODE", "yes"], ["PI_WEB_SPAWN_SESSIONS", "no"], ["PI_WEB_SUBSESSIONS", "2"],
     ["PI_WEB_QUIET_MODE", ""], ["PI_WEB_SPAWN_SESSIONS", ""], ["PI_WEB_SUBSESSIONS", ""],
@@ -797,6 +822,7 @@ describe("environment setting resolution", () => {
   it.each(["TRUE", "true", "1", "FALSE", "false", "0"])("parses strict boolean %s consistently", (value) => {
     const expected = /^(true|1)$/i.test(value);
     expect(applyPiWebConfigEnv({}, { PI_WEB_QUIET_MODE: value }).quietMode).toBe(expected);
+    expect(applyPiWebConfigEnv({}, { PI_WEB_SHOW_MESSAGE_TIMESTAMPS: value }).showMessageTimestamps).toBe(expected);
     expect(spawnSessionsEnabled({ PI_WEB_SPAWN_SESSIONS: value })).toBe(expected);
     expect(sessionMessagesEnabled({ PI_WEB_SESSION_MESSAGES: value }, { sessionMessages: !expected })).toBe(expected);
     expect(subsessionsEnabled({ PI_WEB_SUBSESSIONS: value })).toBe(expected);

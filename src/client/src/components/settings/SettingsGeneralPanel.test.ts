@@ -408,6 +408,76 @@ describe("General settings", () => {
     expect(panel.shadowRoot?.querySelector("#quiet-mode")).toBeNull();
     expect(setQuietMode).not.toHaveBeenCalled();
   });
+  it("defaults timestamps off and disables their toggle during saves", async () => {
+    const panel = await mountPanel();
+    const toggle = input(panel, "#show-message-timestamps");
+    expect(toggle.checked).toBe(false);
+    expect(toggle.closest("label")?.textContent).toContain("Show timestamps");
+    expect(panel.shadowRoot?.getElementById(required(toggle.getAttribute("aria-describedby")))?.textContent).toContain("Off by default");
+    panel.saving = true;
+    await settle(panel);
+    expect(toggle.disabled).toBe(true);
+  });
+
+  it("uses effective timestamps and exposes enforcement and reset controls", async () => {
+    const panel = await mountPanel();
+    const reset = vi.fn();
+    panel.onReset = reset;
+    panel.configResponse = {
+      ...configResponse({ showMessageTimestamps: false }),
+      effectiveConfig: { showMessageTimestamps: true },
+      enforcedSettings: { "/showMessageTimestamps": "PI_WEB_SHOW_MESSAGE_TIMESTAMPS" },
+    };
+    await settle(panel);
+    const toggle = input(panel, "#show-message-timestamps");
+    const resetButton = toggle.closest(".field")?.querySelector<HTMLButtonElement>("button");
+    expect(toggle.checked).toBe(true);
+    expect(toggle.disabled).toBe(true);
+    expect(resetButton?.disabled).toBe(true);
+    expect(toggle.closest(".field")?.textContent).toContain("PI_WEB_SHOW_MESSAGE_TIMESTAMPS");
+    panel.configResponse = { ...configResponse({ showMessageTimestamps: false }), configSources: { "/showMessageTimestamps": "config" } };
+    await settle(panel);
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(false);
+    expect(resetButton?.disabled).toBe(false);
+    resetButton?.click();
+    expect(reset).toHaveBeenCalledExactlyOnceWith(["/showMessageTimestamps"]);
+  });
+
+  it("reflects the saved show-message-timestamps setting and shows dialog save failures", async () => {
+    const panel = await mountPanel();
+    panel.configResponse = configResponse({ host: "gateway.local", showMessageTimestamps: true });
+    await settle(panel);
+    const toggle = input(panel, "#show-message-timestamps");
+    expect(toggle.checked).toBe(true);
+
+    const setShowMessageTimestamps = vi.fn();
+    panel.onSetShowMessageTimestamps = setShowMessageTimestamps;
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle(panel);
+    expect(setShowMessageTimestamps).toHaveBeenCalledWith(false);
+
+    // The dialog owns show-message-timestamps failures and passes them down as its error prop.
+    panel.error = "Couldn't save timestamps: Disk is read-only";
+    await settle(panel);
+    const notices = panel.shadowRoot?.querySelector("settings-panel-frame")?.shadowRoot?.querySelector('[role="alert"]');
+    expect(notices?.textContent).toContain("Disk is read-only");
+  });
+
+  it("does not save timestamps while the gateway configuration is loading or unavailable", async () => {
+    const panel = await mountPanel();
+    const setShowMessageTimestamps = vi.fn();
+    panel.onSetShowMessageTimestamps = setShowMessageTimestamps;
+    panel.loading = true;
+    await settle(panel);
+    expect(input(panel, "#show-message-timestamps").disabled).toBe(true);
+    panel.loading = false;
+    panel.configResponse = undefined;
+    await settle(panel);
+    expect(panel.shadowRoot?.querySelector("#show-message-timestamps")).toBeNull();
+    expect(setShowMessageTimestamps).not.toHaveBeenCalled();
+  });
 });
 
 const gatewayHostInput = 'section[aria-label="Gateway server settings"] input';

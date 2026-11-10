@@ -49,6 +49,7 @@ export interface TranscriptRenderContext {
     toggle: (key: string, event: Event, defaultOpen: boolean) => void;
   };
   metadata: {
+    timestamp: (message: ChatLine) => string | undefined;
     expandedKey: string | undefined;
     label: (message: ChatLine) => string;
     expand: (key: string | undefined) => void;
@@ -68,9 +69,10 @@ export function renderMessage(context: TranscriptRenderContext, message: ChatLin
     const hasHeader = chatMessageHasHeader(message);
     const shellClass = toolOnly ? "msg tool-execution-shell" : "msg ask-user-record-shell";
     const conversationClass = hasHeader && (message.role === "user" || message.role === "assistant") ? " conversation-message conversation-layout chat-message" : "";
-    const body = html`${message.parts.map((part, partIndex) => renderPart(context, part, message, index, partIndex))}`;
+    const body = html`${conversationClass !== "" ? renderMessageTimestamp(context, message) : nothing}${message.parts.map((part, partIndex) => renderPart(context, part, message, index, partIndex))}`;
     return html`
       <article class=${`${hasHeader ? `msg ${message.role}${conversationClass}` : shellClass} ui-transcript-surface`} data-speaker=${conversationClass !== "" ? message.role : nothing} data-index=${index} data-scroll-anchor-id=${context.anchors.message(index, message) ?? nothing}>
+        ${conversationClass === "" ? renderMessageTimestamp(context, message) : nothing}
         ${hasHeader ? renderFramedMessage(context, message, String(index), index, entryActionHeaders, body, {
           actionPlacement: conversationClass !== "" ? "corner" : "header", conversation: conversationClass !== "",
         }) : body}
@@ -105,6 +107,7 @@ export function renderToolImageOutputs(context: TranscriptRenderContext, group: 
           <details class="image-output-sources" ?open=${live(sourcesOpen)} @toggle=${(event: Event) => { context.disclosure.toggle(sourcesKey, event, false); }}>
             <summary class="ui-transcript-disclosure">${messages.t("sources", { count: outputs.length })}</summary>
             ${sourcesOpen ? outputs.map((output, outputIndex) => html`<section class="image-output-source" aria-label=${messages.t("output", { index: outputIndex + 1 })}>
+              ${renderMessageTimestamp(context, output.message)}
               ${renderFramedMessage(context, output.message, `image-source:${String(output.index)}`, output.index, entryActionHeaders, undefined, {
                 actionPlacement: "header", label: messages.t("sourceHeader", { name: output.toolName ?? "", named: output.toolName === undefined || output.toolName === "" ? "no" : "yes", index: outputIndex + 1 }),
               })}
@@ -114,6 +117,7 @@ export function renderToolImageOutputs(context: TranscriptRenderContext, group: 
     `;
     return html`
       <article class="msg tool-image-output conversation-message ui-transcript-surface" data-index=${first.index} data-scroll-anchor-id=${context.anchors.message(first.index, first.message) ?? nothing}>
+        ${outputs.length === 1 ? renderMessageTimestamp(context, first.message) : nothing}
         ${outputs.length === 1
           ? renderFramedMessage(context, first.message, String(first.index), first.index, entryActionHeaders, body, { actionPlacement: "header", label })
           : renderMessageFrame({ heading: label, actionPlacement: "header", body })}
@@ -152,6 +156,7 @@ export function renderMessageGroupBody(context: TranscriptRenderContext, { messa
         ${messages.map(({ message, index }, offset) => {
           return html`
             <section class=${`group-msg ${message.role} ui-transcript-surface`} data-index=${index} data-scroll-anchor-id=${context.anchors.event(index, message) ?? nothing}>
+              ${renderMessageTimestamp(context, message)}
               ${chatMessageHasHeader(message) ? renderFramedMessage(context, message, `${String(startIndex)}:${String(offset)}`, index, entryActionHeaders,
                 html`${renderGroupedParts(context, message, index)}`, {
                   actionPlacement: message.role === "assistant" || message.role === "user" ? "corner" : "header",
@@ -224,6 +229,11 @@ function renderMessageMenu(context: TranscriptRenderContext, message: ChatLine, 
         </pi-message-actions-menu>
     `;
   }
+
+function renderMessageTimestamp(context: TranscriptRenderContext, message: ChatLine) {
+  const timestamp = context.metadata.timestamp(message);
+  return timestamp === undefined ? nothing : html`<time class="msg-timestamp" datetime=${message.meta?.timestamp ?? nothing}>${timestamp}</time>`;
+}
 
 function renderMessageMetadata(context: TranscriptRenderContext, message: ChatLine, key: string) {
   return html`<div id=${`message-meta-${key}`} class="msg-meta-details chat-message-meta message-frame-meta" ?hidden=${context.metadata.expandedKey !== key}>${context.metadata.label(message)}</div>`;

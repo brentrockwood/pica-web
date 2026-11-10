@@ -192,6 +192,8 @@ export interface PiWebConfigValues {
    * summary line by default, including the growing live group. Off by default.
    */
   quietMode?: boolean;
+  /** Gateway-wide message timestamp display; off by default. */
+  showMessageTimestamps?: boolean;
   host?: string;
   port?: number;
   /** Legacy Vite-only fallback, ignored when hostAccess is supplied. */

@@ -55,6 +55,8 @@ Current fork regression checklist:
 - Submitted prompts appear while awaiting server receipt, then reconcile without duplicates.
 - Collapsing the workspace pane returns to Chat and preserves the selected tool.
 - Chat tables wrap within the available width, including long links and code.
+- Optional gateway-wide chat timestamps survive config persistence and appear on conversation, system, expanded activity, and image-source messages.
+- Navigation activity includes inactive sessions, preserves pinned trees, and pauses automatic sorting while hovered or focused, including action menus. Keep upstream Needs-input flags alongside activity timestamps.
 
 Do not start a second PI WEB instance with the inherited environment of a live session. Any isolated runtime test must use its own data directory, config, socket or TCP endpoint, and ports. Component browser fixtures do not need a session daemon.
 

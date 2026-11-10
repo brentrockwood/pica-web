@@ -24,3 +24,5 @@
     outline-offset: -2px;
     border-radius: 0;
   }
+  .list-activity { display: block; margin-top: 3px; color: var(--pi-muted); overflow-wrap: anywhere; }
+  .list-sort { min-width: 0; max-width: 100%; }

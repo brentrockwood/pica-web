@@ -1,6 +1,6 @@
 # Upstream integration: 1.202611.1
 
-Status: prepared on `chore/upstream-1.202611.1`; **not activated or pushed**. The live checkout remains at `f8c0f138` on `fix/wrapping-chat-tables`. No live service restart, configuration change, or migration backup has been performed.
+Status: refreshed in the existing `chore/upstream-1.202611.1` worktree; **not activated or pushed**. The live checkout remains at `79805b1945e758277f6cd089d1f91edd9778c717` on `main`, matching fetched `origin/main`. No live service restart, configuration change, or migration backup has been performed.
 
 The staging worktree is `~/src/worktrees/pica-web/update-1.202611.1`. It must remain available until activation or an explicit cleanup decision. Follow the [fork-update runbook](fork-updates.md) for future releases and activation.
 
@@ -12,7 +12,40 @@ The staging worktree is `~/src/worktrees/pica-web/update-1.202611.1`. It must re
 - Update tests for the new theme catalog and shadow-DOM browser fixture. Isolate controller session storage on Node 26. Normalize existing filesystem paths in package smoke assertions to handle macOS `/var` aliases.
 - Add an isolated test runner because inheriting the live Pi agent directory caused SDK tests to load real MCP configuration and hang. Also isolate Git signing configuration and enable npm lifecycle scripts within the test subprocess.
 
-## Verification
+## Refresh with current fork main
+
+Brent approved staging integration and verification after reviewing `docs/upstream-integration-handoff.md` in the live checkout. This approval does not cover publication, promotion, service-definition changes, or restart. The worktree merges `origin/main` at `79805b19` into the prepared `3a233a29` branch; the upstream target remains released `v1.202611.1`, not the two later upstream commits.
+
+All 17 textual conflicts were resolved by behavior. The timestamp setting participates in the new configuration registry, persistence, environment enforcement, and reset/source metadata. Chat timestamps retain upstream message frames, structured session-message senders, custom renderers, and the deferred-scroll compensation. Navigation retains hover/focus ordering holds, manual moves, pinned hierarchy, copy-ID actions, loading feedback, theme hooks, and Needs-input cues. Activity uses `knownWorkspaces()` without restoring discovery on status reads; discovery publication and archival invalidate the activity cache.
+
+The first broad checks exposed missing language-pack namespace registration and two move-action fixtures that needed Manual sorting. The navigation browser fixture also compared viewport position across intentional keyboard scrolling: it now measures geometry after ArrowDown and before Enter, retaining the selection-geometry and native keyboard assertions. All four engines passed the focused navigation rerun. A source review also found that the shared history scanner swallowed read errors before the activity service could retain its previous timestamps; activity scanning now propagates those failures without changing ordinary tolerant session-listing behavior.
+
+Dependency manifests and lockfile are unchanged from the previously installed staging branch, so dependencies were reused rather than reinstalled. Icons were explicitly regenerated. Current refresh verification is recorded separately from the historical preparation results below.
+
+### Refresh verification (2026-11-10)
+
+| Check | Result |
+| --- | --- |
+| `node scripts/test-fork-update.mjs` | Final run passed: 737 files / 9,354 tests; 1 file / 35 tests skipped by the suite |
+| `npm run typecheck:cached` | Passed after final source changes |
+| `npm run lint` | Passed; scoped ESLint passed again for files changed afterward |
+| `npm run knip` | Passed after final source changes |
+| `npm run build` | Passed after final source changes; existing large-chunk warning remains |
+| `npm run check:artifacts` | Passed after final build: 4 files / 15 tests |
+| `node scripts/test-fork-browser.mjs` | Final run passed: all 396 cases across Chromium, Firefox, WebKit, and touch |
+| `npm run smoke:package-install` | Passed after final build, exit 0 |
+| Fork-delta secret scan | TruffleHog offline scan reported zero findings; no credential verification requests |
+| Diff hygiene | Passed; all conflict entries resolved and staged |
+
+The first full ordinary run failed 6 tests in 2 files (9,339 passed); the first full browser run failed 4 navigation cases (392 passed). The fixes and successful reruns above supersede those results, not conceal them. Final ordinary-test output still includes localhost:3000 connection-refused diagnostics and Node localStorage experimental warnings; these were not separately traced to their emitting tests. Vitest exited 0 with no failed tests.
+
+Browser screenshots were also inspected for narrow touch navigation and timestamped system messages. The final browser run preceded only backend scanner changes; no browser source or fixture changed afterward. Final build/package checks include those backend changes and language-pack registration fixes.
+
+Logs: `/tmp/pica-refresh-full-tests-final.log`, `/tmp/pica-refresh-browser-final.log`, `/tmp/pica-refresh-typecheck-final.log`, `/tmp/pica-refresh-lint.log`, `/tmp/pica-refresh-lint-final.log`, `/tmp/pica-refresh-knip-final.log`, `/tmp/pica-refresh-build-final.log`, `/tmp/pica-refresh-artifacts-final.log`, `/tmp/pica-refresh-package-smoke-final.log`, and `/tmp/pica-refresh-secrets.log`. These are temporary local diagnostics.
+
+Not run: Bun runtime smoke (this deployment uses Node), Windows/Linux CI, physical iPad/Safari, or live proxy/startup/migration checks. No dependency reinstall or fresh audit was needed for the unchanged lockfile; the earlier accepted lint-tool advisories remain historical evidence, not a fresh audit result. Brent subsequently authorized the local merge commit. The staging worktree remains retained; no publication, promotion, or cleanup has occurred. Next: authorize publication separately, then approve the activation decisions below before touching live services.
+
+## Historical preparation verification
 
 | Check | Result |
 | --- | --- |

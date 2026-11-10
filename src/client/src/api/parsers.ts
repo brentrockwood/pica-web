@@ -1551,6 +1551,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("defaultStreamingBehavior", record["defaultStreamingBehavior"] === undefined ? undefined : requireDefaultStreamingBehavior(record["defaultStreamingBehavior"], "response")),
     ...optionalField("defaultLocalization", record["defaultLocalization"] === undefined ? undefined : requireDefaultLocalization(record["defaultLocalization"], "response")),
     ...optionalField("quietMode", optionalBoolean(record, "quietMode")),
+    ...optionalField("showMessageTimestamps", optionalBoolean(record, "showMessageTimestamps")),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
     ...optionalField("basePaths", optionalStringArray(record["basePaths"], "basePaths")),
     ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),

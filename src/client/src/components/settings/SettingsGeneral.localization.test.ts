@@ -36,6 +36,7 @@ async function mount(): Promise<SettingsGeneralPanel> {
   panel.onSave = vi.fn();
   panel.onSaveMachineConfig = vi.fn();
   panel.onSetQuietMode = vi.fn();
+  panel.onSetShowMessageTimestamps = vi.fn();
   document.body.append(panel);
   await settle(panel);
   return panel;
@@ -58,7 +59,7 @@ async function language(panel: SettingsGeneralPanel, language: string): Promise<
 }
 
 it("updates the entire General panel without resetting draft controls, focus or invoking actions", async () => {
-  releases.push(localization.registerCatalog({ id: "general-test", namespace: "core.settingsGeneral", locale: "de", load: () => Promise.resolve({ heading: "Allgemein", machine: "Maschine", host: "Adresse", refresh: "Aktualisieren" }) }));
+  releases.push(localization.registerCatalog({ id: "general-test", namespace: "core.settingsGeneral", locale: "de", load: () => Promise.resolve({ heading: "Allgemein", machine: "Maschine", host: "Adresse", refresh: "Aktualisieren", timestamps: "Zeitstempel anzeigen" }) }));
   const panel = await mount();
   const host = edit(panel, 'form input[placeholder="127.0.0.1"]', "draft.local");
   const name = edit(panel, 'input[name="installationName"]', "Draft <img>");
@@ -74,6 +75,8 @@ it("updates the entire General panel without resetting draft controls, focus or 
     expect(roots.value).toBe("~/Draft");
     expect(panel.hasUnsavedMachineChanges).toBe(true);
     expect(panel.renderRoot.querySelector("#quiet-mode")).toBe(checkbox);
+    expect(panel.renderRoot.querySelector("#show-message-timestamps")?.closest("label")?.textContent).toContain(messages.t("timestamps"));
+    expect(panel.renderRoot.querySelector("#show-message-timestamps-help")?.textContent).toBe(messages.t("timestampsHelp"));
     expect(panel.renderRoot.querySelector("settings-panel-frame")?.heading).toBe(messages.t("heading"));
     expect(panel.renderRoot.querySelector("settings-panel-frame")?.actionLabel).toBe(messages.t("refresh"));
     expect(panel.renderRoot.querySelector("form")?.closest("section")?.getAttribute("aria-label")).toBe(messages.t("gatewayAria"));
@@ -84,7 +87,7 @@ it("updates the entire General panel without resetting draft controls, focus or 
     expect(panel.renderRoot.querySelector("code")?.textContent).toBe(config.path);
     expect(panel.renderRoot.textContent).toContain(panel.targetLabel);
     expect(panel.renderRoot.querySelector("img")).toBeNull();
-    for (const callback of [panel.onSave, panel.onSaveMachineConfig, panel.onReload, panel.onReloadMachine, panel.onSetQuietMode]) expect(callback).not.toHaveBeenCalled();
+    for (const callback of [panel.onSave, panel.onSaveMachineConfig, panel.onReload, panel.onReloadMachine, panel.onSetQuietMode, panel.onSetShowMessageTimestamps]) expect(callback).not.toHaveBeenCalled();
   }
   // A display label may change with language or a rename; identity owns draft lifetime.
   panel.targetLabel = "Translated target";

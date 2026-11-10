@@ -36,11 +36,12 @@ test("shared row hooks preserve full-width geometry, long names, and keyboard na
     expect(geometry.mainRight).toBeLessThanOrEqual(geometry.actionsLeft + 1);
     expect(geometry.labelOverflow).toBe(true);
     expect(geometry.scrollerOverflow).toBe(false);
-    const before = await first.boundingBox();
     await first.focus();
     await first.press("ArrowDown");
     await expect(next).toBeFocused();
     await expect(first).toHaveAttribute("data-current", "true");
+    // Keyboard focus may scroll taller rows into view; selection must not change their geometry.
+    const before = await first.boundingBox();
     await next.press("Enter");
     await expect(page.locator("#last-selected")).toHaveText(`${context}:${second}`);
     await expect(next).toHaveAttribute("data-current", "true");

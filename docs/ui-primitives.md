@@ -75,6 +75,8 @@ Local sticky headers, shadows, and decorations can still use small stacking valu
 
 `sidebarListStyles` is the shared treatment for navigation lists. Projects, workspaces, and sessions expose supported context, anatomy, and state hooks through the [navigation-row styling contract](theme-styling-contract.md#sidebar-navigation-rows); those hooks reuse existing containers without changing row behavior. Grey section headers provide hierarchy above dark, continuous rows. Keep rows full-width and gapless; do not introduce inset card surfaces or visual gutters. Selected, hover, and keyboard-focus states remain on the entire row. Collapsed navigation sections keep the heading's 1px separator and omit the outer section border so adjacent borders do not double the line thickness.
 
+Navigation lists show relative last-activity times with exact timestamps in a tooltip. Their sort selector defaults to Recent activity; Name is also available, and projects/workspaces retain Manual ordering. Automatic sorting pauses while the list or a descendant action menu is hovered or focused, then applies the latest order after both leave. Timestamp text still refreshes while order is paused. Pinned session trees remain above unpinned trees; sorting does not detach children from their parents.
+
 ## Dialog patterns
 
 Use the existing `ModalSurface` component for native modality, focus placement/restoration, Escape, backdrop dismissal, and dialog naming. The content patterns in `ui/dialogStyles.ts` compose with that surface; they do not add another modal controller or wrapper.

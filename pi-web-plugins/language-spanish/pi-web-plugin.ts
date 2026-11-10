@@ -2,6 +2,7 @@ import type { PiWebPlugin } from "@jmfederico/pi-web/plugin-api";
 
 // Keep namespace discovery separate from the lazily loaded translation text.
 const namespaces = [
+  "core.listActivity",
   "core.appActions",
   "core.appFeedback",
   "core.appShell",

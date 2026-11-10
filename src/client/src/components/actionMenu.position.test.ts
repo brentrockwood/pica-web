@@ -53,12 +53,14 @@ function runFrame(): void {
 function makeList(kind: string): ProjectList | WorkspaceList | SessionList {
   if (kind === "project") {
     const list = new ProjectList();
+    list.listActivity.sortMode = "manual";
     list.projects = ["a", "b"].map((id) => ({ id, name: id, path: `/repo/${id}`, createdAt: "2026-06-04" }));
     list.onMove = () => { list.projects = [...list.projects].reverse(); };
     return list;
   }
   if (kind === "workspace") {
     const list = new WorkspaceList();
+    list.listActivity.sortMode = "manual";
     list.workspaces = ["a", "b"].map((id) => ({ id, projectId: "project", path: `/repo/${id}`, label: id, isMain: true, effectiveConfig: {} }));
     list.onMove = () => { list.workspaces = [...list.workspaces].reverse(); };
     return list;

@@ -12,6 +12,7 @@ import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } fr
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
+import { ListActivityController, renderListActivity } from "./listActivity";
 import { sidebarListStyles } from "./sidebarListStyles";
 
 @customElement("project-list")
@@ -43,6 +44,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     return row?.querySelector<HTMLElement>(".action-menu-toggle") ?? undefined;
   }, () => { this.openMenuProjectId = undefined; });
 
+  readonly listActivity = new ListActivityController(this);
+
   private focusedControl: HTMLElement | undefined;
   private focusAfterReorder: HTMLElement | undefined;
 
@@ -72,9 +75,10 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     return html`
       <section data-ui-context="projects" data-collapsed=${String(this.collapsed)}>
         <h2 class="ui-toolbar">${this.renderHeading()}</h2>
+        ${this.collapsed ? null : html`<div class="ui-toolbar list-sort-toolbar">${this.listActivity.renderSortControl()}</div>`}
         ${this.collapsed ? null : html`
           <div class="list-body ui-nav-list" aria-busy=${String(this.selectionLoading)}>
-            ${repeat(this.projects, (project) => project.id, (project, index) => {
+            ${repeat(this.listActivity.order(this.projects, (project) => project.name, this.statusSnapshot?.lastActivity?.projects), (project) => project.id, (project) => {
               const flags = this.statusSnapshot?.projects[project.id];
               const kind = statusActivityKind(flags);
               const unread = hasStatusUnread(flags);
@@ -97,15 +101,16 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                 >
                   <div class="action-main ui-nav-row-main">
                     <span class="workspace-primary"><span class="workspace-primary-label ui-nav-row-label"><bdi>${project.name}</bdi></span></span><small class="ui-nav-row-meta"><bdi dir="ltr">${project.path}</bdi></small>
+                    ${renderListActivity(this.statusSnapshot?.lastActivity?.projects[project.id], this.listActivity.now)}
                     ${this.renderActivity(kind, unread)}
                   </div>
                   <div class="action-menu ui-nav-row-actions">
                     <button class="ui-button ui-button--icon action-menu-toggle ui-nav-row-action ui-popup-trigger" aria-expanded=${String(this.openMenuProjectId === project.id)} aria-controls=${`project-menu-${encodeURIComponent(project.id)}`} title=${messages.t("projectActions")} aria-label=${messages.t("actionsFor", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id); }}>⋯</button>
                     ${this.openMenuProjectId === project.id ? html`
                       <div popover="auto" class="action-menu-panel ui-menu ui-nav-row-menu ui-popup-panel" data-ui-context="project-actions" id=${`project-menu-${encodeURIComponent(project.id)}`} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-                        ${this.onMove === undefined ? null : html`
-                          <button class="ui-button ui-menu-item" data-move ?disabled=${index === 0} @click=${() => { this.onMove?.(project, -1); }}>${messages.t("moveUp")}</button>
-                          <button class="ui-button ui-menu-item" data-move ?disabled=${index === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>${messages.t("moveDown")}</button>
+                        ${this.onMove === undefined || this.listActivity.sortMode !== "manual" ? null : html`
+                          <button class="ui-button ui-menu-item" data-move ?disabled=${this.projects.indexOf(project) === 0} @click=${() => { this.onMove?.(project, -1); }}>${messages.t("moveUp")}</button>
+                          <button class="ui-button ui-menu-item" data-move ?disabled=${this.projects.indexOf(project) === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>${messages.t("moveDown")}</button>
                         `}
                         <button class="ui-button ui-menu-item" title=${messages.t("closeProject")} @click=${() => { this.close(project); }}>${messages.t("close")}</button>
                         ${renderCopyIdAction("project", project.id, () => { this.openMenuProjectId = undefined; })}

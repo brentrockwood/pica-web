@@ -17,6 +17,7 @@ import { interventionRequiredLabel, renderActionActivityIndicator, type Activity
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles, scrollBoundaryShadow } from "./shared";
+import { ListActivityController, renderListActivity, type ListActivityMap } from "./listActivity";
 import { sidebarListStyles } from "./sidebarListStyles";
 import { localization, LocalizationController } from "../localization/browser";
 import definitions from "./sessionNavigation.messages";
@@ -54,6 +55,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ type: Boolean }) loading = false;
+  @property({ attribute: false }) lastActivity: ListActivityMap;
+  private readonly listActivity = new ListActivityController(this);
   @property({ attribute: false }) pinnedRootIds: string[] = [];
   @property({ attribute: false }) onPin?: (session: SessionInfo) => void;
   @property({ attribute: false }) onUnpin?: (session: SessionInfo) => void;
@@ -140,15 +143,16 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     descendantCounts?: Map<string, number>;
   };
 
+  private orderedSessions: SessionInfo[] = [];
+
   private sessionTree() {
-    if (this.treeCache?.sessions !== this.sessions) {
-      const currentRows = sessionRowsForCurrentTree(this.sessions);
+    if (this.treeCache?.sessions !== this.orderedSessions) {
+      const currentRows = sessionRowsForCurrentTree(this.orderedSessions);
       const currentRowIds = new Set(currentRows.map((row) => row.session.id));
-      const archivedRows = sessionRows(this.sessions
-        .filter((session) => session.archived === true && !currentRowIds.has(session.id))
-        .sort((a, b) => Date.parse(b.modified) - Date.parse(a.modified)));
+      const archivedRows = sessionRows(this.orderedSessions
+        .filter((session) => session.archived === true && !currentRowIds.has(session.id)));
       this.treeCache = {
-        sessions: this.sessions,
+        sessions: this.orderedSessions,
         currentRows,
         currentSelectableSessions: currentRows.map((row) => row.session).filter((session) => sessionSelectionScope(session) === "current"),
         archivedRows,
@@ -158,6 +162,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       };
     }
     return this.treeCache;
+  }
+
+  private sessionLastActivity(session: SessionInfo): string {
+    return this.lastActivity?.[session.id] ?? session.modified;
   }
 
   private visibleSessionTree() {
@@ -249,6 +257,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   private menuFocusAfterReorder: HTMLElement | undefined;
 
   protected override willUpdate(changed: PropertyValues<this>): void {
+    const activity = Object.fromEntries(this.sessions.map((session) => [session.id, this.sessionLastActivity(session)]));
+    const ordered = this.listActivity.order(this.sessions, sessionLabel, activity);
+    if (this.orderedSessions.length !== ordered.length || this.orderedSessions.some((session, index) => session !== ordered[index])) this.orderedSessions = ordered;
     if (changed.has("pinnedRootIds")) {
       this.focusedPinRowId = this.focusedSessionId;
       this.menuFocusAfterReorder = this.focusedMenuControl;
@@ -322,6 +333,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       <section data-ui-context="sessions" data-collapsed=${this.collapsed}>
         ${this.renderHeading(tree.currentRows.length + tree.archivedRows.length, tree.currentSelectableSessions, unreadCount)}
         ${this.collapsed ? null : html`
+          <div class="ui-toolbar list-sort-toolbar">${this.listActivity.renderSortControl(false)}</div>
           <div class="list-body ui-nav-list" aria-busy=${String(this.loading)}>
             ${this.loading ? html`<div class="list-status" role="status">${sessionNavigationMessages.t("loadingSessions")}</div>` : null}
             ${this.renderCurrentSelectionToolbar(tree.currentSelectableSessions)}
@@ -511,6 +523,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
           ${showsCheckbox ? html`<input class="session-checkbox" type="checkbox" aria-label=${sessionNavigationMessages.t("selectSession", { label: sessionLabel(session) })} .checked=${bulkSelected} @click=${(event: MouseEvent) => { event.stopPropagation(); }} @change=${() => { this.toggleSelected(session.id); }}>` : null}
           <span class="action-name-line"><span class="action-name ui-nav-row-label" dir="auto" title=${sessionLabel(session)}>${this.renderRowMarker(row)}${sessionLabel(session)}</span>${this.renderRowBadges(row)}</span>
           <small class="session-secondary ui-nav-row-meta"><span class="session-meta">${indicatorKind === "intervention-required" ? html`${interventionRequiredLabel()} · ` : null}${sessionNavigationMessages.t("sessionMeta", { state: this.sessionMetaState(session, status, activity), count: session.messageCount })}</span>${labelItems.length === 0 ? null : html`<span class="session-label-separator" aria-hidden="true">·</span><span class="session-labels">${renderSessionLabelItems(labelItems)}</span>`}</small>
+          ${renderListActivity(this.sessionLastActivity(session), this.listActivity.now)}
           ${this.renderActivity(indicatorKind, unread)}
         </div>
         <div class="action-menu ui-nav-row-actions">

@@ -4,7 +4,7 @@ import type { PiWebConfigValues } from "./apiTypes.js";
 export const PI_WEB_CONFIG_DEFINITIONS = {
   installationName: "string", host: "string", port: "number", allowedHosts: "allowedHosts", hostAccess: "json",
   shortcuts: "json", defaultTheme: "json", defaultLocalization: "json",
-  defaultStreamingBehavior: "string", quietMode: "boolean", plugins: "json",
+  defaultStreamingBehavior: "string", quietMode: "boolean", showMessageTimestamps: "boolean", plugins: "json",
   basePaths: "json", pathAccess: "json", uploads: "json", attachments: "json",
   maxUploadBytes: "number", sessionArchive: "json",
   spawnSessions: "boolean", sessionMessages: "boolean", subsessions: "boolean", askUser: "boolean",

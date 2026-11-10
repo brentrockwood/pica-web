@@ -22,6 +22,7 @@ const sourceModules = import.meta.glob<{ default: MessageDefinitions }>([
 ], { eager: true });
 
 const sourcePaths: Record<string, string> = {
+  "core.listActivity": "../src/client/src/components/listActivity.messages.ts",
   "core.actions": "../src/client/src/plugins/core/actions.messages.ts",
   "core.messageActions": "../src/client/src/plugins/core/messageActions.messages.ts",
   "core.appFeedback": "../src/client/src/appFeedback.messages.ts",

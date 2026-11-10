@@ -73,6 +73,40 @@ describe("settings-dialog general settings machine targeting", () => {
     expect(save).toHaveBeenCalledExactlyOnceWith({ set: { port: 9000 }, unset: ["/quietMode"] });
   });
 
+  it("saves only timestamps on the gateway endpoint without replacing unrelated settings", async () => {
+    stubWindowTimers();
+    const current = configResponse({ host: "127.0.0.1", shortcuts: { "core:view.chat": "mod+1" } });
+    const savedConfig = configResponse({ ...current.config, showMessageTimestamps: true });
+    const configSpy = vi.spyOn(configApi, "config").mockResolvedValue(current);
+    const saveSpy = vi.spyOn(configApi, "updateConfig").mockResolvedValue(savedConfig);
+    const onConfigSaved = vi.fn();
+    const dialog = new SettingsDialog();
+    dialog.onConfigSaved = onConfigSaved;
+
+    await callDialogPromise(dialog, "saveShowMessageTimestamps", true);
+
+    expect(configSpy).not.toHaveBeenCalled();
+    expect(saveSpy.mock.calls).toEqual([[{ set: { showMessageTimestamps: true } }]]);
+    expect(getDialogProperty(dialog, "configResponse")).toBe(savedConfig);
+    expect(onConfigSaved).toHaveBeenCalledWith(savedConfig.effectiveConfig);
+    expect(getDialogProperty(dialog, "savedMessage")).toBe("Timestamps are on.");
+    expect(getDialogProperty(dialog, "saving")).toBe(false);
+  });
+
+  it("reports a failed timestamps save without claiming it was saved", async () => {
+    stubWindowTimers();
+    vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ host: "127.0.0.1" }));
+    vi.spyOn(configApi, "updateConfig").mockRejectedValue(new Error("Disk is read-only"));
+    const dialog = new SettingsDialog();
+
+    await callDialogPromise(dialog, "saveShowMessageTimestamps", false);
+
+    expect(getDialogProperty(dialog, "error")).toBe("Couldn't save timestamps: Disk is read-only");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe("");
+    expect(getDialogProperty(dialog, "saving")).toBe(false);
+  });
+
+
   it("loads file access and upload config from the selected machine", async () => {
     const config = configResponse({ pathAccess: { allowedPaths: ["/mnt/share"] }, uploads: { defaultFolder: "manual/uploads" } });
     const configSpy = vi.spyOn(configApi, "config").mockResolvedValue(config);

@@ -413,6 +413,7 @@ export class SettingsDialog extends LitElement {
         .onReset=${(paths: string[]) => this.saveConfig({}, paths)}
         .onResetMachine=${(paths: string[]) => this.saveMachineAccessConfig({}, paths)}
         .onSetQuietMode=${(quietMode: boolean) => this.saveQuietMode(quietMode)}
+        .onSetShowMessageTimestamps=${(showMessageTimestamps: boolean) => this.saveShowMessageTimestamps(showMessageTimestamps)}
         .onSaveMachineConfig=${(config: PiWebConfigValues, unset?: string[]) => this.saveMachineAccessConfig(config, unset)}
       >
         <settings-theme-panel
@@ -704,8 +705,12 @@ export class SettingsDialog extends LitElement {
     await this.saveFocusedGatewayConfig({ quietMode }, () => settingsDialogMessages.t("quietSaved", { enabled: String(quietMode) }), "quietFailure");
   }
 
+  private async saveShowMessageTimestamps(showMessageTimestamps: boolean): Promise<void> {
+    await this.saveFocusedGatewayConfig({ showMessageTimestamps }, () => settingsDialogMessages.t("timestampsSaved", { enabled: String(showMessageTimestamps) }), "timestampsFailure");
+  }
+
   /** PATCH changes supplied settings only; retire older refreshes before saving. */
-  private async saveFocusedGatewayConfig(patch: PiWebConfigValues, savedMessage: DisplayText, failure: "themeFailure" | "quietFailure"): Promise<void> {
+  private async saveFocusedGatewayConfig(patch: PiWebConfigValues, savedMessage: DisplayText, failure: "themeFailure" | "quietFailure" | "timestampsFailure"): Promise<void> {
     if (this.saving) return;
     this.loadRequestSeq += 1;
     this.loading = false;

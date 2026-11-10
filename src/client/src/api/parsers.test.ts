@@ -196,6 +196,23 @@ describe("API parsers", () => {
     }
   });
 
+  it("preserves timestamps and rejects invalid values in every config layer", () => {
+    const response = {
+      path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {}, defaultsConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false },
+    };
+    for (const field of ["config", "effectiveConfig", "defaultsConfig"] as const) {
+      expect(parsePiWebConfigResponse(response)[field]).not.toHaveProperty("showMessageTimestamps");
+      for (const showMessageTimestamps of [true, false]) {
+        expect(parsePiWebConfigResponse({ ...response, [field]: { showMessageTimestamps } })[field]).toEqual({ showMessageTimestamps });
+      }
+      for (const showMessageTimestamps of ["true", 1, null, {}, []]) {
+        expect(() => parsePiWebConfigResponse({ ...response, [field]: { showMessageTimestamps } })).toThrow("showMessageTimestamps");
+      }
+    }
+  });
+
+
   it("rejects the retired sessionNaming key in every config response layer", () => {
     const response = {
       path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},

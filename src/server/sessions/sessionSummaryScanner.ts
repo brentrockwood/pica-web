@@ -7,6 +7,7 @@ import type { PiSessionListEntry } from "./piSessionService.js";
 import type { SessionUiMetadata } from "../../shared/pluginApiTypes.js";
 import { sessionUiMetadataFromEntry } from "./sessionMetadata.js";
 import { interventionStateFromEntry } from "./sessionIntervention.js";
+import { isNodeErrorWithCode } from "../workspaces/pathSafety.js";
 import { cwdPathsEqual } from "../workingDirectory.js";
 import { parsePersistedChildSubsessionLink, parsePersistedParentSubsessionLink, type PersistedChildSubsessionLink, type PersistedParentSubsessionLink } from "./subsessionProvenance.js";
 
@@ -145,11 +146,14 @@ export class SessionSummaryScanner {
    * pass per changed file, instead of the SDK's full-transcript listing. Files
    * whose identity and size have not changed since the previous scan of their
    * directory are answered from the memo (one stat each) instead of being read.
+   * Activity scans propagate I/O failures (except ENOENT) so callers retain history;
+   * malformed records and ordinary listings keep the SDK's tolerant behavior.
    */
-  async scanSessionSummariesInDir(sessionDir: string): Promise<PiSessionListEntry[]> {
-    const files = await listSessionFilesInDir(sessionDir);
+  async scanSessionSummariesInDir(sessionDir: string, mode: "listing" | "activity" = "listing"): Promise<PiSessionListEntry[]> {
+    const strict = mode === "activity";
+    const files = await listSessionFilesInDir(sessionDir, strict);
     this.pruneEntriesRemovedFrom(sessionDir, files);
-    const summaries = await scanSessionFilesWithBoundedConcurrency(files, this.chunkBytes, (file, chunkBuffer) => this.scanFileWithMemo(file, chunkBuffer));
+    const summaries = await scanSessionFilesWithBoundedConcurrency(files, this.chunkBytes, (file, chunkBuffer) => this.scanFileWithMemo(file, chunkBuffer, strict), strict);
     const sessions = sortedSessionSummaries(summaries);
     // Reuse this listing's folds and memoized parent scans; never open SDK
     // managers (which parse entire transcripts) just to classify a list row.
@@ -167,7 +171,7 @@ export class SessionSummaryScanner {
       if (parent === undefined) {
         let pending = parents.get(parentPath);
         if (pending === undefined) {
-          pending = this.scanFileWithMemo(parentPath, () => Buffer.allocUnsafe(this.chunkBytes));
+          pending = this.scanFileWithMemo(parentPath, () => Buffer.allocUnsafe(this.chunkBytes), strict);
           parents.set(parentPath, pending);
         }
         parent = await pending;
@@ -191,14 +195,15 @@ export class SessionSummaryScanner {
     }
   }
 
-  private async scanFileWithMemo(filePath: string, chunkBuffer: () => Buffer): Promise<PiSessionListEntry | undefined> {
+  private async scanFileWithMemo(filePath: string, chunkBuffer: () => Buffer, strict: boolean): Promise<PiSessionListEntry | undefined> {
     const memoized = this.memo.get(filePath);
-    if (memoized === undefined) return this.fullScan(filePath, chunkBuffer);
+    if (memoized === undefined) return this.fullScan(filePath, chunkBuffer, strict);
 
     let stats: Stats;
     try {
       stats = await stat(filePath);
-    } catch {
+    } catch (error) {
+      if (strict && !isNodeErrorWithCode(error, "ENOENT")) throw error;
       // Went away between readdir and stat: drop it and skip, like the SDK.
       this.memo.delete(filePath);
       return undefined;
@@ -206,7 +211,7 @@ export class SessionSummaryScanner {
 
     if (stats.dev !== memoized.dev || stats.ino !== memoized.ino || stats.size !== memoized.size) {
       // Anything but an unchanged file is scanned whole again.
-      return this.fullScan(filePath, chunkBuffer);
+      return this.fullScan(filePath, chunkBuffer, strict);
     }
     // Stat-only fast path: unchanged file, so no open and no read. Its one
     // blind spot is an equal-size in-place rewrite that keeps the inode;
@@ -214,8 +219,8 @@ export class SessionSummaryScanner {
     return buildSummaryFromFold(memoized.fold, filePath, stats.mtime);
   }
 
-  private async fullScan(filePath: string, chunkBuffer: () => Buffer): Promise<PiSessionListEntry | undefined> {
-    const scanned = await scanWholeSessionFile(filePath, chunkBuffer);
+  private async fullScan(filePath: string, chunkBuffer: () => Buffer, strict: boolean): Promise<PiSessionListEntry | undefined> {
+    const scanned = await scanWholeSessionFile(filePath, chunkBuffer, strict);
     if (scanned === undefined) {
       this.memo.delete(filePath);
       return undefined;
@@ -264,18 +269,20 @@ interface ScannedSessionFile {
 }
 
 /** Open a session file for reading and fstat the opened handle. */
-async function openSessionFile(filePath: string): Promise<{ file: FileHandle; stats: Stats } | undefined> {
+async function openSessionFile(filePath: string, strict: boolean): Promise<{ file: FileHandle; stats: Stats } | undefined> {
   let file: FileHandle | undefined;
   try {
     file = await open(filePath, "r");
-  } catch {
+  } catch (error) {
+    if (strict && !isNodeErrorWithCode(error, "ENOENT")) throw error;
     return undefined;
   }
   try {
     const stats = await file.stat();
     return { file, stats };
-  } catch {
+  } catch (error) {
     await file.close().catch(() => undefined);
+    if (strict && !isNodeErrorWithCode(error, "ENOENT")) throw error;
     return undefined;
   }
 }
@@ -290,8 +297,8 @@ async function openSessionFile(filePath: string): Promise<{ file: FileHandle; st
  * mid-scan): one corrupt file must not break the listing, and the SDK skips
  * such files too.
  */
-async function scanWholeSessionFile(filePath: string, chunkBuffer: () => Buffer): Promise<ScannedSessionFile | undefined> {
-  const opened = await openSessionFile(filePath);
+async function scanWholeSessionFile(filePath: string, chunkBuffer: () => Buffer, strict: boolean): Promise<ScannedSessionFile | undefined> {
+  const opened = await openSessionFile(filePath, strict);
   if (opened === undefined) return undefined;
   const { file, stats } = opened;
   try {
@@ -302,7 +309,8 @@ async function scanWholeSessionFile(filePath: string, chunkBuffer: () => Buffer)
     // later listing must compare against to take the stat-only fast path.
     const size = fold.rejected ? Math.max(stats.size, endOffset) : endOffset;
     return { dev: stats.dev, ino: stats.ino, size, mtime: stats.mtime, fold };
-  } catch {
+  } catch (error) {
+    if (strict && !isNodeErrorWithCode(error, "ENOENT")) throw error;
     return undefined;
   } finally {
     await file.close().catch(() => undefined);
@@ -548,11 +556,12 @@ function extractTextContent(content: unknown): string {
   return texts.join(" ");
 }
 
-async function listSessionFilesInDir(sessionDir: string): Promise<string[]> {
+async function listSessionFilesInDir(sessionDir: string, strict: boolean): Promise<string[]> {
   let fileNames: string[];
   try {
     fileNames = await readdir(sessionDir);
-  } catch {
+  } catch (error) {
+    if (strict && !isNodeErrorWithCode(error, "ENOENT")) throw error;
     // Matches the SDK listing behavior: an unreadable directory lists nothing.
     return [];
   }
@@ -569,6 +578,7 @@ async function scanSessionFilesWithBoundedConcurrency(
   files: readonly string[],
   chunkBytes: number,
   scan: (file: string, chunkBuffer: () => Buffer) => Promise<PiSessionListEntry | undefined>,
+  strict: boolean,
 ): Promise<(PiSessionListEntry | undefined)[]> {
   const results: (PiSessionListEntry | undefined)[] = Array.from({ length: files.length }, () => undefined);
   let nextIndex = 0;
@@ -584,7 +594,10 @@ async function scanSessionFilesWithBoundedConcurrency(
       const index = nextIndex++;
       const file = files[index];
       if (file === undefined) return;
-      results[index] = await scan(file, readBuffer).catch(() => undefined);
+      results[index] = await scan(file, readBuffer).catch((error: unknown) => {
+        if (strict) throw error;
+        return undefined;
+      });
     }
   });
   await Promise.all(workers);

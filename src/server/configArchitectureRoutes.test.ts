@@ -82,6 +82,40 @@ describe("layered config updates", () => {
     expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual({ sessionMessages: true, spawnSessions: false });
   });
 
+  it("resets showMessageTimestamps to deployment defaults without persisting effective values", async () => {
+    writeFileSync(defaults, JSON.stringify({ showMessageTimestamps: false }));
+    writeFileSync(writable, JSON.stringify({ spawnSessions: false, subsessions: false }));
+    start();
+    const url = "/api/config";
+    const saved = await app.inject({ method: "PATCH", url, payload: { set: { showMessageTimestamps: true } } });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json<PiWebConfigResponse>().effectiveConfig.showMessageTimestamps).toBe(true);
+    const reset = await app.inject({ method: "PATCH", url, payload: { unset: ["/showMessageTimestamps"] } });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json<PiWebConfigResponse>()).toMatchObject({ effectiveConfig: { showMessageTimestamps: false }, configSources: { "/showMessageTimestamps": "defaults" } });
+    expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual({ spawnSessions: false, subsessions: false });
+  });
+
+  it("enforces showMessageTimestamps while preserving the hidden saved choice", async () => {
+    writeFileSync(defaults, "{}");
+    writeFileSync(writable, JSON.stringify({ showMessageTimestamps: true }));
+    start({ PI_WEB_SHOW_MESSAGE_TIMESTAMPS: "false" });
+    const url = "/api/config";
+    const read = await app.inject({ method: "GET", url });
+    expect(parsePiWebConfigResponseBody(read.json())).toMatchObject({
+      config: { showMessageTimestamps: true }, effectiveConfig: { showMessageTimestamps: false },
+      enforcedSettings: { "/showMessageTimestamps": "PI_WEB_SHOW_MESSAGE_TIMESTAMPS" },
+      configSources: { "/showMessageTimestamps": "PI_WEB_SHOW_MESSAGE_TIMESTAMPS" },
+    });
+    for (const payload of [{ set: { showMessageTimestamps: false } }, { unset: ["/showMessageTimestamps"] }]) {
+      const rejected = await app.inject({ method: "PATCH", url, payload });
+      expect(rejected.statusCode).toBe(400);
+    }
+    const replaced = await app.inject({ method: "PUT", url, payload: { config: { spawnSessions: false } } });
+    expect(replaced.statusCode).toBe(200);
+    expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual({ showMessageTimestamps: true, spawnSessions: false });
+  });
+
   it.each(["/api/config", "/api/machines/local/config"])("protects hidden overrides during legacy PUT through %s", async (url) => {
     writeFileSync(defaults, "{}");
     const saved = { installationName: "Hidden", attachments: { defaultFolder: "hidden" }, uploads: { defaultFolder: "ordinary" }, askUser: false, quietMode: true };

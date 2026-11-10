@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CORE_STATUS_FLAGS, type MachineStatusSnapshot } from "../../shared/machineStatus.js";
-import { MachineStatusService, type ActiveCwdActivity } from "./machineStatusService.js";
+import { MachineStatusService, type ActiveCwdActivity, type PersistedSessionActivity } from "./machineStatusService.js";
 import type { CwdAttribution } from "./workspaceAttribution.js";
 
 const WORKING = CORE_STATUS_FLAGS.working;
@@ -9,6 +9,48 @@ const UNREAD = CORE_STATUS_FLAGS.unread;
 const INTERVENTION = CORE_STATUS_FLAGS.interventionRequired;
 
 describe("MachineStatusService", () => {
+  it("cascades persisted activity for idle sessions, compares timestamps, and reattributes/removes rows", async () => {
+    const older = "2026-01-01T01:00:00.000Z";
+    const newer = "2026-01-02T01:00:00.000Z";
+    const history = [
+      { id: "s1", cwd: "/external/worktree", modified: new Date(newer) },
+      { id: "s2", cwd: "/external/worktree", modified: new Date(older) },
+      { id: "s3", cwd: "/other", modified: new Date(older) },
+      { id: "orphan", cwd: "/unknown", modified: new Date(newer) },
+      { id: "invalid", cwd: "/other", modified: new Date(NaN) },
+    ];
+    const topology = {
+      "/external/worktree": { projectId: "p1", workspaceId: "w1" },
+      "/other": { projectId: "p1", workspaceId: "w2" },
+    };
+    const { service, published } = statusService({ history, topology });
+    await service.refresh();
+    expect(service.snapshot()).toMatchObject({
+      machine: {}, projects: {}, workspaces: {}, sessions: {},
+      lastActivity: {
+        sessions: { s1: newer, s2: older, s3: older, orphan: newer },
+        workspaces: { w1: newer, w2: older }, projects: { p1: newer },
+      },
+    });
+    history.reverse();
+    await service.refresh();
+    expect(published).toHaveLength(1);
+    topology["/other"] = { projectId: "p2", workspaceId: "w2" };
+    history.splice(0, history.length, { id: "s3", cwd: "/other", modified: new Date(newer) });
+    await service.refresh();
+    expect(service.snapshot().lastActivity).toEqual({
+      sessions: { s3: newer }, workspaces: { w2: newer }, projects: { p2: newer },
+    });
+    expect(published).toHaveLength(2);
+    const latest = "2026-01-03T01:00:00.000Z";
+    history[0] = { id: "s3", cwd: "/other", modified: new Date(latest) };
+    await service.refresh();
+    expect(service.snapshot().lastActivity).toEqual({
+      sessions: { s3: latest }, workspaces: { w2: latest }, projects: { p2: latest },
+    });
+    expect(published).toHaveLength(3);
+  });
+
   it("lights the project and workspace of an active session in a project the browser never opened", async () => {
     const { service, published } = statusService({
       activity: [{ cwd: "/srv/wt/feature", hasSessionActivity: true, hasTerminalActivity: false }],
@@ -149,6 +191,34 @@ describe("MachineStatusService", () => {
     expect(snapshot.unattributed).toEqual({});
   });
 
+  it("keeps status flags live and the last timestamps when history reads fail", async () => {
+    const activity: ActiveCwdActivity[] = [];
+    const interventionSessions: { sessionId: string; cwd: string }[] = [];
+    const unread: string[] = [];
+    const { service, logger, failHistoryReads } = statusService({
+      activity,
+      interventionSessions,
+      unread,
+      history: [{ id: "s", cwd: "/repo", modified: new Date("2026-11-01T00:00:00Z") }],
+      topology: { "/repo": { projectId: "p", workspaceId: "w" } },
+    });
+    await service.refresh();
+    const previous = service.snapshot().lastActivity;
+    failHistoryReads();
+    interventionSessions.push({ sessionId: "unread-0", cwd: "/repo" });
+    unread.push("/repo");
+    activity.push({ cwd: "/repo", hasSessionActivity: true, hasTerminalActivity: false });
+    await service.refresh();
+    const flags = { [WORKING]: true, [UNREAD]: true, [INTERVENTION]: true };
+    expect(service.snapshot()).toMatchObject({
+      machine: flags, projects: { p: flags }, workspaces: { w: flags },
+      sessions: { "unread-0": { [UNREAD]: true, [INTERVENTION]: true } },
+    });
+    expect(service.snapshot().lastActivity).toEqual(previous);
+    expect(logger.warn.mock.calls[0]?.[0]["err"]).toBeInstanceOf(Error);
+    expect(logger.warn.mock.calls[0]?.[1]).toBe("session activity timestamps could not be refreshed");
+  });
+
   it("publishes nothing while the computed tree is unchanged", async () => {
     const activity: ActiveCwdActivity[] = [{ cwd: "/srv/wt/feature", hasSessionActivity: true, hasTerminalActivity: false }];
     const { service, published } = statusService({
@@ -265,6 +335,7 @@ describe("MachineStatusService", () => {
 });
 
 interface StatusServiceScenario {
+  history?: PersistedSessionActivity[];
   activity?: readonly ActiveCwdActivity[];
   sessions?: readonly { sessionId: string; cwd: string }[];
   unread?: readonly string[];
@@ -283,6 +354,7 @@ function statusService(scenario: StatusServiceScenario = {}) {
   const published: MachineStatusSnapshot[] = [];
   const logger = { warn: vi.fn<(details: Record<string, unknown>, message: string) => void>() };
   let failUnreadRead = false;
+  let failHistoryRead = false;
   let failPublish = false;
 
   const attribute = vi.fn((cwds: Iterable<string>) => Promise.resolve(
@@ -300,6 +372,7 @@ function statusService(scenario: StatusServiceScenario = {}) {
         ...(scenario.interventionSessions === undefined ? {} : { interventionSessions: [...scenario.interventionSessions] }),
       }),
     },
+    ...(scenario.history === undefined ? {} : { history: { snapshot: () => failHistoryRead ? Promise.reject(new Error("history unavailable")) : Promise.resolve(scenario.history ?? []) } }),
     unread: {
       catalogSnapshot: () => {
         if (failUnreadRead) throw new Error("unread store unavailable");
@@ -321,6 +394,7 @@ function statusService(scenario: StatusServiceScenario = {}) {
     published,
     attribute,
     logger,
+    failHistoryReads: (): void => { failHistoryRead = true; },
     failUnreadReads: (): void => {
       failUnreadRead = true;
     },

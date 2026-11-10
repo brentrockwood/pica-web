@@ -886,3 +886,55 @@ async function writeSession(fileName: string, lines: readonly string[]): Promise
 function statWithSize(stats: Awaited<ReturnType<typeof stat>>, size: number): Awaited<ReturnType<typeof stat>> {
   return Object.assign({}, stats, { size });
 }
+
+describe("activity scan I/O failures", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(["EACCES", "EIO", "ENOENT"])("distinguishes directory %s from an empty history", async (code) => {
+    const scanner = new SessionSummaryScanner();
+    const error = Object.assign(new Error(code), { code });
+    vi.spyOn(fsPromises, "readdir").mockRejectedValue(error);
+    if (code === "ENOENT") {
+      await expect(scanner.scanSessionSummariesInDir(sessionDir, "activity")).resolves.toEqual([]);
+    } else {
+      await expect(scanner.scanSessionSummariesInDir(sessionDir, "activity")).rejects.toBe(error);
+    }
+    await expect(scanner.scanSessionSummariesInDir(sessionDir)).resolves.toEqual([]);
+  });
+
+  it.each(["open", "stat", "read", "memo stat"] as const)("propagates %s failures but skips deleted files", async (operation) => {
+    const path = await writeSession("session.jsonl", [headerLine({ id: "session", cwd: WORKSPACE })]);
+    const scanner = new SessionSummaryScanner();
+    if (operation === "memo stat") await scanner.scanSessionSummariesInDir(sessionDir);
+    const handle = await fsPromises.open(path, "r");
+    const error = Object.assign(new Error("failed"), { code: "EIO" });
+    try {
+      if (operation === "open") vi.spyOn(fsPromises, "open").mockRejectedValue(error);
+      else if (operation === "memo stat") vi.spyOn(fsPromises, "stat").mockRejectedValue(error);
+      else {
+        vi.spyOn(fsPromises, "open").mockResolvedValue(handle);
+        vi.spyOn(handle, "close").mockResolvedValue(undefined);
+        vi.spyOn(handle, operation).mockRejectedValue(error);
+      }
+      await expect(scanner.scanSessionSummariesInDir(sessionDir, "activity")).rejects.toBe(error);
+      await expect(scanner.scanSessionSummariesInDir(sessionDir)).resolves.toEqual([]);
+      // Tolerant stat failure evicts the memo; rebuild it before the deletion race.
+      if (operation === "memo stat") await scanner.scanSessionSummariesInDir(sessionDir);
+      error.code = "ENOENT";
+      await expect(scanner.scanSessionSummariesInDir(sessionDir, "activity")).resolves.toEqual([]);
+    } finally {
+      vi.restoreAllMocks();
+      await handle.close();
+    }
+  });
+
+  it("accepts missing directories, deleted files, and malformed records", async () => {
+    const scanner = new SessionSummaryScanner();
+    await expect(scanner.scanSessionSummariesInDir(join(tempDir, "missing"), "activity")).resolves.toEqual([]);
+    await writeSession("malformed.jsonl", ["{broken"]);
+    const path = await writeSession("valid.jsonl", [headerLine({ id: "valid", cwd: WORKSPACE }), "{broken"]);
+    await expect(scanner.scanSessionSummariesInDir(sessionDir, "activity")).resolves.toMatchObject([{ id: "valid" }]);
+    await rm(path);
+    await expect(scanner.scanSessionSummariesInDir(sessionDir, "activity")).resolves.toEqual([]);
+  });
+});
