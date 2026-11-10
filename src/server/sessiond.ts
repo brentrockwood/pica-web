@@ -7,6 +7,7 @@ import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { registerTerminalStatusRoutes } from "./terminals/terminalStatusRoutes.js";
 import { WorkspaceActivityService } from "./activity/workspaceActivityService.js";
+import { CachedPersistedSessionActivity, SESSION_ACTIVITY_REFRESH_MS } from "./status/persistedSessionActivity.js";
 import { MachineStatusService } from "./status/machineStatusService.js";
 import { registerMachineStatusRoutes } from "./status/machineStatusRoutes.js";
 import { CachedWorkspaceAttribution } from "./status/workspaceAttribution.js";
@@ -283,7 +284,11 @@ async function createSessionDaemonRuntime() {
       workspaces: workspaceProviders,
       logger: app.log,
     });
+    const sessionManager = createPiSessionManagerGateway({ agentDir: activeAgentProfile.dir, env: daemonEnvironment });
+    const sessionActivity = new CachedPersistedSessionActivity(async () =>
+      sessionManager.listActivity(await statusAttribution.workspacePaths()));
     const machineStatus = new MachineStatusService({
+      history: sessionActivity,
       activity: workspaceActivity,
       unread: unreadStore,
       attribution: statusAttribution,
@@ -305,6 +310,7 @@ async function createSessionDaemonRuntime() {
       reconcileUnreadWorkspaces: (cwds): Promise<void> => sessions.reconcileUnreadWorkspaces(cwds),
       logger: app.log,
       onProjectsChanged: () => {
+        sessionActivity.invalidate();
         statusAttribution.invalidate();
         machineStatus.notifyChanged();
       },
@@ -354,14 +360,12 @@ async function createSessionDaemonRuntime() {
       notificationStore,
       unreadStore,
       onUnreadChanged: (hasNewCompletion) => {
+        if (hasNewCompletion) sessionActivity.invalidate();
         machineStatus.notifyChanged();
         if (hasNewCompletion) projectLifecycle.scheduleCleanup();
       },
       catalogRefreshStatus: catalogRefresher,
-      sessionManager: createPiSessionManagerGateway({
-        agentDir: activeAgentProfile.dir,
-        env: daemonEnvironment,
-      }),
+      sessionManager,
     }));
     sessionsForFailedConstruction = sessions;
     auth.subscribe((change) => { sessions.applyAuthChange(change); });
@@ -411,10 +415,17 @@ async function createSessionDaemonRuntime() {
       ...getPiWebRuntimeComponent("sessiond", SESSIOND_RUNTIME_CAPABILITIES, deprecatedAgentInputs),
       activeAgentProfile,
     });
+    // External writers and idle/unselected workspaces have no runtime event source.
+    const activityRefresh = setInterval(() => {
+      sessionActivity.invalidate();
+      machineStatus.notifyChanged();
+    }, SESSION_ACTIVITY_REFRESH_MS);
+    activityRefresh.unref();
     let disposed = false;
     const shutdown = async (): Promise<void> => {
       if (disposed) return;
       disposed = true;
+      clearInterval(activityRefresh);
       await runSessionDaemonShutdown({
         logger: app.log,
         dependencies: {

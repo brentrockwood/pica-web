@@ -11,6 +11,7 @@ import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } fr
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
+import { ListActivityController, renderListActivity } from "./listActivity";
 import { sidebarListStyles } from "./sidebarListStyles";
 
 @customElement("project-list")
@@ -41,6 +42,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     return row?.querySelector<HTMLElement>(".action-menu-toggle") ?? undefined;
   }, () => { this.openMenuProjectId = undefined; });
 
+  readonly listActivity = new ListActivityController(this);
+
   private focusedControl: HTMLElement | undefined;
   private focusAfterReorder: HTMLElement | undefined;
 
@@ -70,9 +73,10 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     return html`
       <section>
         <h2 class="ui-toolbar">${this.renderHeading()}</h2>
+        ${this.collapsed ? null : html`<div class="ui-toolbar list-sort-toolbar">${this.listActivity.renderSortControl()}</div>`}
         ${this.collapsed ? null : html`
           <div class="list-body">
-            ${repeat(this.projects, (project) => project.id, (project, index) => html`
+            ${repeat(this.listActivity.order(this.projects, (project) => project.name, this.statusSnapshot?.lastActivity?.projects), (project) => project.id, (project) => html`
               <div
                 class=${`action-row ${this.selected?.id === project.id ? "selected" : ""}`}
                 tabindex="0"
@@ -85,15 +89,16 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
               >
                 <div class="action-main">
                   <span class="workspace-primary"><span class="workspace-primary-label"><bdi>${project.name}</bdi></span></span><small><bdi dir="ltr">${project.path}</bdi></small>
+                  ${renderListActivity(this.statusSnapshot?.lastActivity?.projects[project.id], this.listActivity.now)}
                   ${this.renderActivity(project)}
                 </div>
                 <div class="action-menu">
                   <button class="ui-button ui-button--icon action-menu-toggle" title=${messages.t("projectActions")} aria-label=${messages.t("actionsFor", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id); }}>⋯</button>
                   ${this.openMenuProjectId === project.id ? html`
                     <div popover="auto" class="action-menu-panel ui-menu" @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-                      ${this.onMove === undefined ? null : html`
-                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === 0} @click=${() => { this.onMove?.(project, -1); }}>${messages.t("moveUp")}</button>
-                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>${messages.t("moveDown")}</button>
+                      ${this.onMove === undefined || this.listActivity.sortMode !== "manual" ? null : html`
+                        <button class="ui-button ui-menu-item" data-move ?disabled=${this.projects.indexOf(project) === 0} @click=${() => { this.onMove?.(project, -1); }}>${messages.t("moveUp")}</button>
+                        <button class="ui-button ui-menu-item" data-move ?disabled=${this.projects.indexOf(project) === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>${messages.t("moveDown")}</button>
                       `}
                       <button class="ui-button ui-menu-item" title=${messages.t("closeProject")} @click=${() => { this.close(project); }}>${messages.t("close")}</button>
                     </div>

@@ -42,6 +42,12 @@ export interface MachineStatusSnapshot {
   sessions?: Readonly<Record<string, StatusFlags>>;
   /** Roll-up of active cwds that map to no known workspace. */
   unattributed: StatusFlags;
+  /** Latest persisted session modification, cascaded through authoritative workspace ownership. */
+  lastActivity?: {
+    sessions: Record<string, string>;
+    workspaces: Record<string, string>;
+    projects: Record<string, string>;
+  };
   generatedAt: string;
 }
 
@@ -108,6 +114,15 @@ export function parseMachineStatusSnapshot(value: unknown): MachineStatusSnapsho
     if (sessions === undefined) return undefined;
     snapshot.sessions = sessions;
   }
+  if (Object.hasOwn(value, "lastActivity")) {
+    const activity = value["lastActivity"];
+    if (!isRecord(activity)) return undefined;
+    const sessions = parseTimestamps(activity["sessions"]);
+    const workspaces = parseTimestamps(activity["workspaces"]);
+    const projects = parseTimestamps(activity["projects"]);
+    if (sessions === undefined || workspaces === undefined || projects === undefined) return undefined;
+    snapshot.lastActivity = { sessions, workspaces, projects };
+  }
   return snapshot;
 }
 
@@ -138,4 +153,10 @@ function parseStatusFlagsByNodeId(value: unknown, strictNodes = false): Readonly
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseTimestamps(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] =>
+    typeof entry[1] === "string" && Number.isFinite(Date.parse(entry[1]))));
 }

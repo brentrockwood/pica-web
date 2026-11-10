@@ -15,6 +15,7 @@ import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } fr
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
+import { ListActivityController, renderListActivity } from "./listActivity";
 import { sidebarListStyles } from "./sidebarListStyles";
 import { renderWorkspaceLabelInlineItems } from "./workspaceLabel";
 
@@ -59,6 +60,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @state() private copiedDetailKey: string | undefined;
   @state() private trustByWorkspaceId: Record<string, WorkspaceTrustState> = {};
 
+  readonly listActivity = new ListActivityController(this);
+
   private focusedControl: HTMLElement | undefined;
   private focusAfterReorder: HTMLElement | undefined;
 
@@ -101,9 +104,10 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     return html`
       <section>
         <h2 class="ui-toolbar">${this.renderHeading()}</h2>
+        ${this.collapsed ? null : html`<div class="ui-toolbar list-sort-toolbar">${this.listActivity.renderSortControl()}</div>`}
         ${this.collapsed ? null : html`
           <div class="list-body">
-            ${repeat(this.workspaces, (workspace) => workspace.id, (workspace, index) => {
+            ${repeat(this.listActivity.order(this.workspaces, workspacePrimaryLabel, this.statusSnapshot?.lastActivity?.workspaces), (workspace) => workspace.id, (workspace) => {
               const label = workspacePrimaryLabel(workspace);
               const items = this.workspaceLabelItems(workspace);
               return html`
@@ -120,7 +124,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
                   <div class="action-main">
                     ${this.renderWorkspaceMain(label, items, workspace)}
                   </div>
-                  ${this.renderWorkspaceMenu(label, items, workspace, index)}
+                  ${this.renderWorkspaceMenu(label, items, workspace, this.workspaces.indexOf(workspace))}
                 </div>
               `;
             })}
@@ -155,6 +159,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
           <span class="workspace-label">${renderWorkspaceLabelInlineItems(items)}</span>
         </small>
       `}
+      ${renderListActivity(this.statusSnapshot?.lastActivity?.workspaces[workspace.id], this.listActivity.now)}
       ${this.renderActivity(workspace)}
     `;
   }
@@ -187,7 +192,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     const actionLabel = workspaceRemovalActionLabel(workspace) ?? messages.t("removeWorkspace");
     return html`
       <div class="workspace-menu-actions">
-        ${this.onMove === undefined ? null : html`
+        ${this.onMove === undefined || this.listActivity.sortMode !== "manual" ? null : html`
           <button class="ui-button ui-menu-item" data-move ?disabled=${index === 0} @click=${() => { this.onMove?.(workspace, -1); }}>${messages.t("moveUp")}</button>
           <button class="ui-button ui-menu-item" data-move ?disabled=${index === this.workspaces.length - 1} @click=${() => { this.onMove?.(workspace, 1); }}>${messages.t("moveDown")}</button>
         `}

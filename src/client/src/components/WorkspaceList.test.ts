@@ -41,6 +41,7 @@ describe("workspace move actions", () => {
     const item = workspaces[index];
     if (item === undefined) throw new Error("Expected a workspace");
     const list = await mountWorkspaceList(workspaces);
+    list.listActivity.sortMode = "manual";
     const onMove = vi.fn();
     list.onMove = onMove;
     openMenu(list, item.label);
@@ -57,6 +58,7 @@ describe("workspace move actions", () => {
 
   it("disables both directions for a single workspace", async () => {
     const list = await mountWorkspaceList([workspace("only")]);
+    list.listActivity.sortMode = "manual";
     list.onMove = vi.fn();
     openMenu(list, "only");
     await list.updateComplete;
@@ -68,6 +70,7 @@ describe("workspace move actions", () => {
     const workspaces: [Workspace, Workspace, Workspace] = [workspace("z"), workspace("a"), workspace("m")];
     const list = await mountWorkspaceList(workspaces);
     const onSelect = vi.fn();
+    list.listActivity.sortMode = "manual";
     const onMove = vi.fn((item: Workspace, delta: -1 | 1) => {
       const reordered = [...list.workspaces];
       const index = reordered.indexOf(item);
@@ -109,6 +112,7 @@ describe("workspace move actions", () => {
   it("leaves ordering unchanged when the parent only receives the callback", async () => {
     const workspaces = [workspace("z"), workspace("a")];
     const list = await mountWorkspaceList(workspaces);
+    list.listActivity.sortMode = "manual";
     list.onMove = vi.fn();
     openMenu(list, "z");
     await list.updateComplete;
@@ -443,3 +447,82 @@ function unreadDot(row: Element): Element | null {
 function workspace(id: string, patch: Partial<Workspace> = {}): Workspace {
   return { id, projectId: "project-1", path: `/repo/${id}`, label: id, isMain: true, effectiveConfig: {}, ...patch };
 }
+
+
+describe("activity sorting", () => {
+  it("renders recent activity by default, offers an accessible sort selector, and hides manual moves", async () => {
+    const list = new WorkspaceList();
+    list.workspaces = [workspace("z"), workspace("a"), workspace("m")];
+    list.onMove = vi.fn();
+    list.statusSnapshot = machineStatusSnapshot({ lastActivity: {
+      sessions: {}, projects: {},
+      workspaces: { a: "2026-01-01T00:00:00Z", m: "2026-01-02T00:00:00Z" },
+    } });
+    document.body.append(list);
+    await list.updateComplete;
+    const ids = () => [...(list.shadowRoot?.querySelectorAll<HTMLElement>("[data-workspace-id]") ?? [])].map((row) => row.dataset["workspaceId"]);
+    expect(ids()).toEqual(["m", "a", "z"]);
+    expect(rowFor(list, "z").querySelector("time")).toBeNull();
+    expect(rowFor(list, "m").querySelector("time")?.dateTime).toBe("2026-01-02T00:00:00.000Z");
+    openMenu(list, "a");
+    await list.updateComplete;
+    expect(list.shadowRoot?.querySelector("[data-move]")).toBeNull();
+    const select = list.shadowRoot?.querySelector<HTMLSelectElement>("select.ui-select");
+    expect(select?.getAttribute("aria-label")).toBe("Sort order");
+    if (!select) throw new Error("Missing sort selector");
+    select.value = "name";
+    select.dispatchEvent(new Event("change"));
+    await list.updateComplete;
+    expect(ids()).toEqual(["a", "m", "z"]);
+    select.value = "manual";
+    select.dispatchEvent(new Event("change"));
+    await list.updateComplete;
+    expect(ids()).toEqual(["z", "a", "m"]);
+    expect(moveButton(list, "Move up").disabled).toBe(false);
+    expect(moveButton(list, "Move down").disabled).toBe(false);
+  });
+});
+
+
+it("keeps popup focus order stable through activity updates and navigates the displayed sequence", async () => {
+  const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => undefined);
+  const list = new WorkspaceList();
+  list.workspaces = [workspace("z"), workspace("a")];
+  const snapshot = (latest: string) => machineStatusSnapshot({ lastActivity: {
+    sessions: {}, projects: {}, workspaces: { [latest]: "2026-01-01T00:00:00Z" },
+  } });
+  list.statusSnapshot = snapshot("a");
+  document.body.append(list);
+  await list.updateComplete;
+  openMenu(list, "a");
+  await list.updateComplete;
+  const popupControl = rowFor(list, "a").querySelector<HTMLElement>(".action-menu-panel button, .action-menu-panel a");
+  if (!popupControl) throw new Error("Missing popup control");
+  popupControl.focus();
+  list.dispatchEvent(new Event("pointerenter"));
+  list.statusSnapshot = snapshot("z");
+  await list.updateComplete;
+  const ids = () => [...(list.shadowRoot?.querySelectorAll<HTMLElement>("[data-workspace-id]") ?? [])].map((row) => row.dataset["workspaceId"]);
+  expect(ids()).toEqual(["a", "z"]);
+  expect(rowFor(list, "z").querySelector("time")).not.toBeNull();
+  list.dispatchEvent(new Event("pointerleave"));
+  await list.updateComplete;
+  expect(ids()).toEqual(["a", "z"]);
+  popupControl.blur();
+  await Promise.resolve();
+  await list.updateComplete;
+  expect(ids()).toEqual(["z", "a"]);
+  openMenu(list, "a");
+  await list.updateComplete;
+  const row = rowFor(list, "z");
+  if (row instanceof HTMLElement) row.focus();
+  // happy-dom's ShadowRoot does not inherit its global DocumentFragment as browsers do.
+  vi.stubGlobal("DocumentFragment", ShadowRoot);
+  try {
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, composed: true }));
+    expect(list.shadowRoot?.activeElement).toBe(rowFor(list, "a"));
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  scroll.mockRestore();
+});

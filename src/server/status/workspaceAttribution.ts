@@ -88,6 +88,10 @@ export class CachedWorkspaceAttribution implements WorkspaceAttribution {
     return attributions;
   }
 
+  async workspacePaths(): Promise<string[]> {
+    return (await this.topology()).map((workspace) => workspace.path);
+  }
+
   invalidate(): void {
     this.cache = undefined;
   }

@@ -1,5 +1,11 @@
 /** Spanish catalogs keyed by the full namespaces registered by their owners. */
 const catalogs: Record<string, Record<string, string>> = {
+  "core.listActivity": {
+    "sort": "Orden",
+    "recent": "Actividad reciente",
+    "name": "Nombre",
+    "manual": "Manual",
+  },
   // src/client/src/components/appActions.messages.ts
   "core.appActions": {
     "refreshTitle": "Actualizar panel actual",
