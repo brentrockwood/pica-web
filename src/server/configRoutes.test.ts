@@ -257,6 +257,38 @@ describe("config routes", () => {
     expect(savedConfig.quietMode).toBe(true);
   });
 
+  it.each([true, false])("accepts showMessageTimestamps %s through config routes and response parsing", async (showMessageTimestamps) => {
+    const config = { showMessageTimestamps };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(200);
+    expect(savedConfig).toEqual(config);
+    expect(parsePiWebConfigResponseBody(response.json())).toMatchObject({ config, effectiveConfig: config });
+  });
+
+  it.each(["true", 1, null, {}, []])("rejects invalid showMessageTimestamps %j before writing and in responses", async (showMessageTimestamps) => {
+    const config = { showMessageTimestamps };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toContain("showMessageTimestamps");
+    expect(service.write).not.toHaveBeenCalled();
+    const valid = responseFor({}, true);
+    for (const field of ["config", "effectiveConfig"]) {
+      expect(() => parsePiWebConfigResponseBody({ ...valid, [field]: config })).toThrow("showMessageTimestamps");
+    }
+  });
+
+  it("keeps showMessageTimestamps gateway-only", async () => {
+    savedConfig.showMessageTimestamps = true;
+    const read = await app.inject({ method: "GET", url: "/api/machines/local/config" });
+    expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("showMessageTimestamps");
+    expect(read.json<PiWebConfigResponse>().effectiveConfig).not.toHaveProperty("showMessageTimestamps");
+    const write = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { showMessageTimestamps: false } } });
+    expect(write.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+    expect(savedConfig.showMessageTimestamps).toBe(true);
+  });
+
+
   it("rejects malformed theme defaults before writing", async () => {
     const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { defaultTheme: { themeId: "themes:pi-web-dark", auto: "yes" } } } });
     expect(response.statusCode).toBe(400);

@@ -49,6 +49,7 @@ export class SettingsGeneralPanel extends LitElement {
   @property({ attribute: false }) onReloadMachine?: () => void | Promise<void>;
   @property({ attribute: false }) onSave?: (config: PiWebConfigValues) => void | Promise<void>;
   @property({ attribute: false }) onSetQuietMode?: (quietMode: boolean) => void | Promise<void>;
+  @property({ attribute: false }) onSetShowMessageTimestamps?: (showMessageTimestamps: boolean) => void | Promise<void>;
   @property({ attribute: false }) onSaveMachineConfig?: (config: PiWebConfigValues) => void | Promise<void>;
   @state() private gatewayDraft: GatewayServerConfigDraft = emptyGatewayServerConfigDraft();
   @state() private machineDraft: MachineAccessConfigDraft = emptyMachineAccessConfigDraft();
@@ -122,6 +123,7 @@ export class SettingsGeneralPanel extends LitElement {
   private renderChatDisplaySettings(): TemplateResult {
     const config = this.configResponse;
     const quietMode = config?.config.quietMode === true;
+    const showMessageTimestamps = config?.config.showMessageTimestamps === true;
     return html`
       <section class="settings-card ui-settings-section" aria-label=${messages.t("chatAria")}>
         <div class="card-heading ui-settings-heading">
@@ -142,6 +144,20 @@ export class SettingsGeneralPanel extends LitElement {
               <span>${messages.t("quiet")}</span>
             </label>
             <small id="quiet-mode-help">${messages.t("quietHelp")}</small>
+          </div>
+          <div class="field ui-form-field">
+            <label class="ui-checkbox-field">
+              <input
+                type="checkbox"
+                id="show-message-timestamps"
+                aria-describedby="show-message-timestamps-help"
+                .checked=${live(showMessageTimestamps)}
+                ?disabled=${this.loading || this.saving}
+                @change=${(event: Event) => { this.setShowMessageTimestamps(event); }}
+              >
+              <span>${messages.t("timestamps")}</span>
+            </label>
+            <small id="show-message-timestamps-help">${messages.t("timestampsHelp")}</small>
           </div>
         `}
       </section>
@@ -326,6 +342,13 @@ export class SettingsGeneralPanel extends LitElement {
     if (this.configResponse === undefined || this.loading || this.saving || this.onSetQuietMode === undefined) return;
     this.gatewayLocalError = "";
     void this.onSetQuietMode(quietMode);
+  }
+
+  private setShowMessageTimestamps(event: Event): void {
+    const showMessageTimestamps = event.target instanceof HTMLInputElement && event.target.checked;
+    if (this.configResponse === undefined || this.loading || this.saving || this.onSetShowMessageTimestamps === undefined) return;
+    this.gatewayLocalError = "";
+    void this.onSetShowMessageTimestamps(showMessageTimestamps);
   }
 
   private async saveGatewayConfig(event: Event): Promise<void> {

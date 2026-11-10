@@ -357,6 +357,7 @@ export class SettingsDialog extends LitElement {
         .onReloadMachine=${() => this.loadAccessConfigForTarget()}
         .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
         .onSetQuietMode=${(quietMode: boolean) => this.saveQuietMode(quietMode)}
+        .onSetShowMessageTimestamps=${(showMessageTimestamps: boolean) => this.saveShowMessageTimestamps(showMessageTimestamps)}
         .onSaveMachineConfig=${(config: PiWebConfigValues) => this.saveMachineAccessConfig(config)}
       >
         <settings-theme-panel
@@ -604,6 +605,10 @@ export class SettingsDialog extends LitElement {
     await this.saveFocusedGatewayConfig({ quietMode }, () => settingsDialogMessages.t("quietSaved", { enabled: String(quietMode) }), "quietFailure");
   }
 
+  private async saveShowMessageTimestamps(showMessageTimestamps: boolean): Promise<void> {
+    await this.saveFocusedGatewayConfig({ showMessageTimestamps }, () => settingsDialogMessages.t("timestampsSaved", { enabled: String(showMessageTimestamps) }), "timestampsFailure");
+  }
+
   /**
    * Save one gateway setting without disturbing the rest. `PUT /api/config`
    * replaces the whole config file (unlike the selected-machine endpoint, which
@@ -611,7 +616,7 @@ export class SettingsDialog extends LitElement {
    * snapshot. That read also retires an older Refresh result, so this focused
    * action cannot lose to a stale reload.
    */
-  private async saveFocusedGatewayConfig(patch: PiWebConfigValues, savedMessage: DisplayText, failure: "themeFailure" | "quietFailure"): Promise<void> {
+  private async saveFocusedGatewayConfig(patch: PiWebConfigValues, savedMessage: DisplayText, failure: "themeFailure" | "quietFailure" | "timestampsFailure"): Promise<void> {
     if (this.saving) return;
     this.loadRequestSeq += 1;
     this.loading = false;

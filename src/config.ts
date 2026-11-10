@@ -240,6 +240,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   delete existing["defaultLocalization"];
   delete existing["defaultStreamingBehavior"];
   delete existing["quietMode"];
+  delete existing["showMessageTimestamps"];
   delete existing["plugins"];
   delete existing["pathAccess"];
   delete existing["uploads"];
@@ -277,6 +278,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.defaultLocalization !== undefined ? { defaultLocalization: config.defaultLocalization } : {}),
     ...(config.defaultStreamingBehavior !== undefined ? { defaultStreamingBehavior: config.defaultStreamingBehavior } : {}),
     ...(config.quietMode !== undefined ? { quietMode: config.quietMode } : {}),
+    ...(config.showMessageTimestamps !== undefined ? { showMessageTimestamps: config.showMessageTimestamps } : {}),
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
@@ -303,6 +305,7 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["defaultLocalization"] !== undefined ? { defaultLocalization: requireDefaultLocalization(value["defaultLocalization"], path) } : {}),
     ...(value["defaultStreamingBehavior"] !== undefined ? { defaultStreamingBehavior: requireDefaultStreamingBehavior(value["defaultStreamingBehavior"], path) } : {}),
     ...(value["quietMode"] !== undefined ? { quietMode: parseBooleanKey(value["quietMode"], "quietMode", path) } : {}),
+    ...(value["showMessageTimestamps"] !== undefined ? { showMessageTimestamps: parseBooleanKey(value["showMessageTimestamps"], "showMessageTimestamps", path) } : {}),
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], path) } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], path) } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], path) } : {}),

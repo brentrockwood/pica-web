@@ -84,6 +84,8 @@ export const chatStyles = css`
   .session-activity strong { color: var(--pi-purple); }
   .session-activity span, .session-activity small { color: var(--pi-muted); }
   .history-boundary small { color: var(--pi-dim); }
+  .msg-timestamp { display: block; color: var(--pi-muted); font-size: 12px; overflow-wrap: anywhere; margin-bottom: 4px; }
+  .group-msg > .msg-timestamp, .tool-execution-shell > .msg-timestamp, .ask-user-record-shell > .msg-timestamp { padding: 8px 12px 0; }
   .msg-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 28px; margin-bottom: 4px; }
   .msg.conversation-layout { padding: 0; }
   .conversation-content { position: relative; min-width: 0; }

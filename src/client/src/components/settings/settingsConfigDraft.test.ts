@@ -108,6 +108,12 @@ describe("settings config drafts", () => {
     expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("quietMode");
   });
 
+  it.each([true, false])("preserves showMessageTimestamps %s during gateway edits", (showMessageTimestamps) => {
+    const draft = gatewayServerDraftFromConfig({ host: "gateway.local" });
+    expect(gatewayServerConfigFromDraft(draft, { showMessageTimestamps }).showMessageTimestamps).toBe(showMessageTimestamps);
+    expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("showMessageTimestamps");
+  });
+
   it("builds selected-machine access/upload patches only from selected-machine-safe fields", () => {
     const patch = machineAccessConfigPatchFromDraft({
       installationName: " Studio ",

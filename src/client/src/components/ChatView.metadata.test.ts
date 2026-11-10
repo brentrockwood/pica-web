@@ -78,3 +78,59 @@ it("shows only the metadata region controlled by the selected message's Info but
   expect(second.getAttribute("aria-expanded")).toBe("true");
   expect(view.shadowRoot?.querySelectorAll('.msg-meta-details:not([hidden])')).toHaveLength(1);
 });
+
+it("toggles recorded timestamps for conversation, system, and headerless activity messages", async () => {
+  const view = new ChatView();
+  view.messages = [
+    { ...message, role: "user", entryId: "user" },
+    message,
+    { ...message, role: "system", entryId: "system" },
+    { ...message, role: "tool", entryId: "tool", parts: [{ type: "toolExecution", toolName: "read", summary: "file", status: "success" }] },
+    { role: "assistant", parts: [{ type: "text", text: "No recorded time" }] },
+    { ...message, entryId: "invalid", meta: { timestamp: "invalid" } },
+  ];
+  document.body.append(view);
+  await view.updateComplete;
+  const group = view.shadowRoot?.querySelector<HTMLDetailsElement>(".event-group");
+  if (!group) throw new Error("Expected activity group");
+  group.open = true;
+  group.dispatchEvent(new Event("toggle"));
+  await view.updateComplete;
+  expect(view.shadowRoot?.querySelectorAll("time")).toHaveLength(0);
+
+  view.showMessageTimestamps = true;
+  await view.updateComplete;
+  const times = [...(view.shadowRoot?.querySelectorAll("time") ?? [])];
+  expect(times).toHaveLength(4);
+  for (const time of times) {
+    expect(time.dateTime).toBe(message.meta.timestamp);
+    expect(time.textContent).not.toBe("");
+    expect(time.textContent).not.toContain("model");
+  }
+  expect(view.shadowRoot?.querySelector(".group-msg.tool time")).not.toBeNull();
+
+  view.showMessageTimestamps = false;
+  await view.updateComplete;
+  expect(view.shadowRoot?.querySelectorAll("time")).toHaveLength(0);
+  expect(group.open).toBe(true);
+});
+
+it("shows timestamps on image outputs and each expanded source of combined outputs", async () => {
+  const view = new ChatView();
+  view.showMessageTimestamps = true;
+  view.behaviors = { ...view.behaviors, loadImages: false };
+  const output = { ...message, role: "tool" as const, parts: [{ type: "image" as const, mimeType: "image/png", data: "" }] };
+  view.messages = [output];
+  document.body.append(view);
+  await view.updateComplete;
+  expect(view.shadowRoot?.querySelectorAll("time")).toHaveLength(1);
+
+  view.messages = [output, { ...output, entryId: "second-output" }];
+  await view.updateComplete;
+  const sources = view.shadowRoot?.querySelector<HTMLDetailsElement>(".image-output-sources");
+  if (!sources) throw new Error("Expected combined output sources");
+  sources.open = true;
+  sources.dispatchEvent(new Event("toggle"));
+  await view.updateComplete;
+  expect(view.shadowRoot?.querySelectorAll(".image-output-source time")).toHaveLength(2);
+});

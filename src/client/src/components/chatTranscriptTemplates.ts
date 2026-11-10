@@ -41,6 +41,7 @@ export interface TranscriptRenderContext {
     toggle: (key: string, event: Event, defaultOpen: boolean) => void;
   };
   metadata: {
+    timestamp: (message: ChatLine) => string | undefined;
     expandedKey: string | undefined;
     label: (message: ChatLine) => string;
     expand: (key: string | undefined) => void;
@@ -64,10 +65,11 @@ export function renderMessage(context: TranscriptRenderContext, message: ChatLin
         ${conversationClass !== "" ? html`
           <div class="conversation-content">
             ${renderMessageHeader(context, message, String(index), index, entryActionHeaders, undefined, true)}
-            <div class="conversation-body">${message.parts.map((part, partIndex) => renderPart(context, part, message, index, partIndex))}</div>
+            <div class="conversation-body">${renderMessageTimestamp(context, message)}${message.parts.map((part, partIndex) => renderPart(context, part, message, index, partIndex))}</div>
           </div>
           ${renderMessageMetadata(context, message, String(index))}
         ` : html`
+          ${renderMessageTimestamp(context, message)}
           ${hasHeader ? renderMessageHeader(context, message, String(index), index, entryActionHeaders) : null}
           ${message.parts.map((part, partIndex) => renderPart(context, part, message, index, partIndex))}
         `}
@@ -90,6 +92,7 @@ export function renderToolImageOutputs(context: TranscriptRenderContext, group: 
     }));
     return html`
       <article class="msg tool-image-output conversation-message ui-transcript-surface" data-index=${first.index} data-scroll-anchor-id=${context.anchors.message(first.index, first.message) ?? nothing}>
+        ${outputs.length === 1 ? renderMessageTimestamp(context, first.message) : nothing}
         ${outputs.length === 1 ? renderMessageHeader(context, first.message, String(first.index), first.index, entryActionHeaders, label) : html`<div class="msg-header"><span class="label">${label}</span></div>`}
         <div class="tool-image-thumbnails">
           ${images.map((image, imageIndex) => html`
@@ -104,6 +107,7 @@ export function renderToolImageOutputs(context: TranscriptRenderContext, group: 
           <details class="image-output-sources" ?open=${live(sourcesOpen)} @toggle=${(event: Event) => { context.disclosure.toggle(sourcesKey, event, false); }}>
             <summary class="ui-transcript-disclosure">${messages.t("sources", { count: outputs.length })}</summary>
             ${sourcesOpen ? outputs.map((output, outputIndex) => html`<section class="image-output-source" aria-label=${messages.t("output", { index: outputIndex + 1 })}>
+              ${renderMessageTimestamp(context, output.message)}
               ${renderMessageHeader(context, output.message, `image-source:${String(output.index)}`, output.index, entryActionHeaders, messages.t("sourceHeader", { name: output.toolName ?? "", named: output.toolName === undefined || output.toolName === "" ? "no" : "yes", index: outputIndex + 1 }))}
             </section>`) : nothing}
           </details>
@@ -143,6 +147,7 @@ export function renderMessageGroupBody(context: TranscriptRenderContext, { messa
         ${messages.map(({ message, index }, offset) => {
           return html`
             <section class=${`group-msg ${message.role} ui-transcript-surface`} data-index=${index} data-scroll-anchor-id=${context.anchors.event(index, message) ?? nothing}>
+              ${renderMessageTimestamp(context, message)}
               ${chatMessageHasHeader(message) ? html`<div class="transcript-content">${renderMessageHeader(context, message, `${String(startIndex)}:${String(offset)}`, index, entryActionHeaders)}</div>` : null}
               ${renderGroupedParts(context, message, index)}
             </section>`;
@@ -193,6 +198,11 @@ export function renderMessageHeader(context: TranscriptRenderContext, message: C
       ${metadataBelow ? null : renderMessageMetadata(context, message, key)}
     `;
   }
+
+function renderMessageTimestamp(context: TranscriptRenderContext, message: ChatLine) {
+  const timestamp = context.metadata.timestamp(message);
+  return timestamp === undefined ? nothing : html`<time class="msg-timestamp" datetime=${message.meta?.timestamp ?? nothing}>${timestamp}</time>`;
+}
 
 function renderMessageMetadata(context: TranscriptRenderContext, message: ChatLine, key: string) {
   return html`<div id=${`message-meta-${key}`} class="msg-meta-details" ?hidden=${context.metadata.expandedKey !== key}>${context.metadata.label(message)}</div>`;

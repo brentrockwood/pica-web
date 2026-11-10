@@ -80,7 +80,7 @@ Process restarts depend on the key:
 - `plugins`: browser-only changes need a tab reload. Server-backed enablement, settings, or package changes require a manual session-daemon restart, then a tab reload. See [Project plugin settings](#project-plugin-settings).
 - `serverPlugins.safeStart`: persistent offline recovery state applied before server-plugin discovery/import on the next sessiond start; use the `pi-web plugins safe-start ...` CLI rather than hand-editing it.
 - Pi package changes: use `/reload` in each idle session for ordinary extensions, skills, templates, and themes. Packages containing server plugins require a manual session-daemon restart and browser reload. Global provider registration or connection changes also require a daemon restart; model-list-only updates do not. See [Pi extension provider baseline](#pi-extension-provider-baseline).
-- `shortcuts` / `defaultStreamingBehavior` / `quietMode`: saved settings apply in the browser after config refresh/save; no service restart.
+- `shortcuts` / `defaultStreamingBehavior` / `quietMode` / `showMessageTimestamps`: saved settings apply in the browser after config refresh/save; no service restart.
 - `defaultTheme`: applies after settings save or browser config refresh when the browser has no local theme override; no service restart.
 
 ### Localization defaults
@@ -110,6 +110,10 @@ Turn it on in **Settings → General → Chat display → Quiet mode**. It is of
 ```json
 { "quietMode": true }
 ```
+
+### Message timestamps
+
+Turn on **Settings → General → Chat display → Show timestamps** to show timestamps on chat messages. The global gateway boolean `showMessageTimestamps` defaults to `false`. Devices share this setting; it is not project-local and needs no service restart.
 
 ## Global config example
 
@@ -218,6 +222,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Browser localization defaults | `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle` | — | Gateway global | Not supported locally; saved device preferences take precedence | Reload tab; no service restart |
 | Streaming send default | `defaultStreamingBehavior` | — | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to `steer` |
 | Quiet mode | `quietMode` | — | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to off |
+| Show timestamps | `showMessageTimestamps` | — | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to off |
 | Keyboard shortcuts | `shortcuts.<actionId>` | — | Global | Not supported locally | Applies after settings save/config refresh |
 | Project config version | `version` | — | Project | Project-local only; must be `1` when present | Next project-config read |
 | **Runtime-only environment variables** |  |  |  |  |  |
