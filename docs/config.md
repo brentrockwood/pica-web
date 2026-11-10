@@ -115,6 +115,14 @@ Turn it on in **Settings → General → Chat display → Quiet mode**. It is of
 
 Turn on **Settings → General → Chat display → Show timestamps** to show timestamps on chat messages. The global gateway boolean `showMessageTimestamps` defaults to `false`. Devices share this setting; it is not project-local and needs no service restart.
 
+### Navigation activity and sorting
+
+Projects, workspaces, and sessions show relative last-activity times; hover over a time for the exact date. Lists default to **Recent activity** and also offer **Name**. Projects and workspaces offer **Manual** to use their saved order and Move up/down actions. Pinned session trees remain above unpinned sessions.
+
+Automatic reordering pauses while a list or its action menu is hovered or focused. It applies the latest order after both leave; timestamps keep updating. Sort choices last for the mounted list and return to Recent activity after a page reload.
+
+Activity uses persisted session-file modification times. Each workspace takes its latest session time, and each project takes its latest workspace time, including inactive sessions. Ordinary workspace file edits do not count. Updates can take about 15 seconds; missing activity has no timestamp and sorts after known activity. Upgrading to this feature requires a manual session-daemon restart for project/workspace activity. Older daemons still allow session timestamps from the session listing.
+
 ## Global config example
 
 ```json

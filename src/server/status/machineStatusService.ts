@@ -7,6 +7,12 @@ import {
 } from "../../shared/machineStatus.js";
 import type { WorkspaceAttribution } from "./workspaceAttribution.js";
 
+export interface PersistedSessionActivity {
+  id: string;
+  cwd: string;
+  modified: Date;
+}
+
 /** One active working directory as recorded by `WorkspaceActivityService`. */
 export interface ActiveCwdActivity {
   cwd: string;
@@ -40,6 +46,7 @@ interface MachineStatusLogger {
 
 export interface MachineStatusServiceDependencies {
   activity: MachineStatusActivitySource;
+  history?: { snapshot(): Promise<readonly PersistedSessionActivity[]> };
   unread: MachineStatusUnreadSource;
   attribution: Pick<WorkspaceAttribution, "attribute">;
   publisher: MachineStatusPublisher;
@@ -47,7 +54,7 @@ export interface MachineStatusServiceDependencies {
 }
 
 /** The part of a snapshot that carries status; the rest is identity and ordering. */
-type MachineStatusTree = Pick<MachineStatusSnapshot, "machine" | "projects" | "workspaces" | "unattributed">
+type MachineStatusTree = Pick<MachineStatusSnapshot, "machine" | "projects" | "workspaces" | "unattributed" | "lastActivity">
   & { sessions: Readonly<Record<string, StatusFlags>> };
 
 /**
@@ -151,7 +158,27 @@ export class MachineStatusService {
     for (const session of unread.sessions) {
       sessions.add(session.sessionId, { [CORE_STATUS_FLAGS.unread]: true });
     }
-    const attributions = await this.dependencies.attribution.attribute(flagsByCwd.keys());
+    let history: readonly PersistedSessionActivity[] | undefined;
+    try {
+      history = await this.dependencies.history?.snapshot();
+    } catch (error) {
+      this.dependencies.logger.warn({ err: error }, "session activity timestamps could not be refreshed");
+    }
+    const attributions = await this.dependencies.attribution.attribute([
+      ...flagsByCwd.keys(), ...(history ?? []).map((session) => session.cwd),
+    ]);
+    const activitySessions = new Map<string, string>();
+    const activityWorkspaces = new Map<string, string>();
+    const activityProjects = new Map<string, string>();
+    for (const session of history ?? []) {
+      if (!Number.isFinite(session.modified.getTime())) continue;
+      const timestamp = session.modified.toISOString();
+      setLatest(activitySessions, session.id, timestamp);
+      const owner = attributions.get(session.cwd);
+      if (owner === undefined) continue;
+      setLatest(activityWorkspaces, owner.workspaceId, timestamp);
+      setLatest(activityProjects, owner.projectId, timestamp);
+    }
 
     const projects = new FlagAccumulator();
     const workspaces = new FlagAccumulator();
@@ -175,6 +202,11 @@ export class MachineStatusService {
         ...Object.values(rolledWorkspaces),
         rolledUnattributed,
       ]),
+      ...(history === undefined ? (this.current.lastActivity === undefined ? {} : { lastActivity: this.current.lastActivity }) : { lastActivity: {
+        sessions: Object.fromEntries(activitySessions),
+        workspaces: Object.fromEntries(activityWorkspaces),
+        projects: Object.fromEntries(activityProjects),
+      } }),
       projects: rolledProjects,
       workspaces: rolledWorkspaces,
       sessions: sessions.rollUp(),
@@ -231,7 +263,8 @@ function isSameStatusTree(left: MachineStatusTree, right: MachineStatusSnapshot)
     && isSameFlags(left.unattributed, right.unattributed)
     && isSameNodes(left.projects, right.projects)
     && isSameNodes(left.workspaces, right.workspaces)
-    && isSameNodes(left.sessions, right.sessions ?? {});
+    && isSameNodes(left.sessions, right.sessions ?? {})
+    && isSameActivity(left.lastActivity, right.lastActivity);
 }
 
 function isSameNodes(left: Readonly<Record<string, StatusFlags>>, right: Readonly<Record<string, StatusFlags>>): boolean {
@@ -247,4 +280,16 @@ function isSameFlags(left: StatusFlags, right: StatusFlags): boolean {
   const leftIds = Object.keys(left);
   if (leftIds.length !== Object.keys(right).length) return false;
   return leftIds.every((flagId) => left[flagId] === right[flagId]);
+}
+
+function setLatest(timestamps: Map<string, string>, id: string, timestamp: string): void {
+  const previous = timestamps.get(id);
+  if (previous === undefined || timestamp > previous) timestamps.set(id, timestamp);
+}
+
+function isSameActivity(left: MachineStatusSnapshot["lastActivity"], right: MachineStatusSnapshot["lastActivity"]): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return (["sessions", "workspaces", "projects"] as const).every((scope) =>
+    Object.keys(left[scope]).length === Object.keys(right[scope]).length
+    && Object.entries(left[scope]).every(([id, timestamp]) => timestamp === right[scope][id]));
 }

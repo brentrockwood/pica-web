@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -624,3 +624,24 @@ async function writeNamedSessionFile(dir: string, fileName: string, header: { id
   await writeFile(path, `${JSON.stringify(line)}\n`, "utf8");
   return path;
 }
+
+describe("persisted activity catalog", () => {
+  it("includes unselected default-store and workspace-configured sessions and observes edits/deletions", async () => {
+    const gateway = createPiSessionManagerGateway(piProfileOptions());
+    const unseen = join(tempDir, "unseen");
+    await writeSessionFile(defaultPiSessionDir(unseen, agentDir), "unseen", unseen);
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await writeFile(join(cwd, ".pi", "settings.json"), JSON.stringify({ sessionDir: ".history" }));
+    const path = await writeNamedSessionFile(join(cwd, ".history"), "custom.jsonl", { id: "custom", cwd });
+    const pinned = new Date("2026-02-01T00:00:00.000Z");
+    await utimes(path, pinned, pinned);
+    const first = await gateway.listActivity([cwd]);
+    expect(first.map((row) => row.id).sort()).toEqual(["custom", "unseen"]);
+    expect(first.find((row) => row.id === "custom")?.modified).toEqual(pinned);
+    await appendFile(path, JSON.stringify({ type: "session_info", name: "Updated" }) + "\n");
+    const next = await gateway.listActivity([cwd]);
+    expect(next.find((row) => row.id === "custom")?.modified).toEqual((await stat(path)).mtime);
+    await rm(path);
+    expect((await gateway.listActivity([cwd])).map((row) => row.id)).toEqual(["unseen"]);
+  });
+});

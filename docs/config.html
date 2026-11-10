@@ -305,6 +305,9 @@
 <pre><code>{ "defaultTheme": { "themeId": "themes:pi-web-dark", "auto": true } }</code></pre>
 <p>Use a theme contribution ID rather than a display name. Built-in IDs are <code>themes:pi-web-dark</code>, <code>themes:pi-web-light</code>, and <code>themes:classic</code>.</p>
 </details>
+<h3 id="navigation-activity">Navigation activity and sorting</h3>
+<p>Projects, workspaces, and sessions show relative last-activity times; hover over a time for its exact date. Lists default to <strong>Recent activity</strong> and also offer <strong>Name</strong>. Projects and workspaces offer <strong>Manual</strong> for their saved order and Move up/down actions. Pinned session trees remain above unpinned sessions. Sort choices return to Recent activity after a page reload.</p>
+<p>Automatic reordering pauses while a list or its action menu is hovered or focused, then applies the latest order after both leave. Timestamps keep updating. Activity uses persisted session-file modification times, cascaded from sessions to workspaces to projects, including inactive sessions. Ordinary workspace file edits do not count. Updates can take about 15 seconds; missing activity has no timestamp and sorts after known activity. A manual session-daemon restart is required when upgrading to this feature; older daemons still provide session-list timestamps.</p>
 <h3 id="prompt-completions">Composer shortcuts (not config keys)</h3>
 <div class="table-scroll" role="region" aria-label="Completion triggers" tabindex="0">
 <table class="reference-table ">

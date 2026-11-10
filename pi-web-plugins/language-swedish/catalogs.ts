@@ -1,5 +1,11 @@
 // Full namespaces follow the host and bundled plugins' registerMessages calls.
 const catalogs: Record<string, Record<string, string>> = {
+  "core.listActivity": {
+    "sort": "Sorteringsordning",
+    "recent": "Senaste aktivitet",
+    "name": "Namn",
+    "manual": "Manuell",
+  },
   // src/client/src/appFeedback.messages.ts
   "core.appFeedback": {
     "navigationOrderFailed": "Kunde inte läsa in eller spara navigeringsordningen: {detail}",

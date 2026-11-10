@@ -116,3 +116,17 @@ describe("parseMachineStatusSnapshot", () => {
     expect(Object.entries(parsed?.machine ?? {})).toEqual([["__proto__", true]]);
   });
 });
+
+describe("persisted activity wire compatibility", () => {
+  it("keeps absence for older daemons and parses timestamp maps without prototype mutation", () => {
+    expect(parseMachineStatusSnapshot(snapshotWire())).not.toHaveProperty("lastActivity");
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    const sessions = Object.fromEntries<unknown>([["__proto__", timestamp], ["bad", "not-a-date"], ["wrong", 123]]);
+    const parsed = parseMachineStatusSnapshot(snapshotWire({ lastActivity: { sessions, workspaces: {}, projects: {} } }));
+    expect(parsed?.lastActivity).toEqual({ sessions: Object.fromEntries([["__proto__", timestamp]]), workspaces: {}, projects: {} });
+  });
+
+  it.each([null, [], {}, { sessions: {}, workspaces: {}, projects: [] }])("rejects malformed activity maps: %j", (lastActivity) => {
+    expect(parseMachineStatusSnapshot(snapshotWire({ lastActivity }))).toBeUndefined();
+  });
+});

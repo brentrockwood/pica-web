@@ -184,7 +184,7 @@ describe("header identity", () => {
 
 describe("machine status wiring", () => {
   it("gives machine sections every snapshot and project and workspace sections the selected machine's", async () => {
-    const local = machineStatusSnapshot({ machine: { "core:working": true }, sessions: { "child-1": { "core:working": true } } });
+    const local = machineStatusSnapshot({ machine: { "core:working": true }, sessions: { "child-1": { "core:working": true } }, lastActivity: { sessions: { "child-1": "2026-11-01T12:00:00Z" }, workspaces: {}, projects: {} } });
     const remote = machineStatusSnapshot({ machine: { "core:unread": true } });
     const panel = await mountPanel({ local, "remote-a": remote }, machine("local"));
 
@@ -193,10 +193,12 @@ describe("machine status wiring", () => {
     expect(section(panel, "project-list", ProjectList).statusSnapshot).toBe(local);
     expect(section(panel, "workspace-list", WorkspaceList).statusSnapshot).toBe(local);
     expect(section(panel, "session-list", SessionList).sessionFlags).toBe(local.sessions);
+    expect(section(panel, "session-list", SessionList).lastActivity).toBe(local.lastActivity?.sessions);
 
     panel.selectedMachine = machine("remote-a");
     await panel.updateComplete;
     expect(section(panel, "session-list", SessionList).sessionFlags).toBe(remote.sessions);
+    expect(section(panel, "session-list", SessionList).lastActivity).toBeUndefined();
   });
 
   it("reads the local machine's snapshot before a machine has been selected", async () => {
@@ -339,6 +341,11 @@ describe("navigation order controls", () => {
     const sessions = section(panel, "session-list", SessionList);
     await Promise.all([projects.updateComplete, workspaces.updateComplete, sessions.updateComplete]);
     for (const list of [projects, workspaces]) {
+      const sort = list.renderRoot.querySelector<HTMLSelectElement>("select");
+      if (!sort) throw new Error("Missing sort selector");
+      sort.value = "manual";
+      sort.dispatchEvent(new Event("change", { bubbles: true }));
+      await list.updateComplete;
       control(list, ".action-menu-toggle").click();
       await list.updateComplete;
       menuButton(list, "Move down").click();

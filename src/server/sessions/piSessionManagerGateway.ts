@@ -68,7 +68,7 @@ export class SessionDirResolver {
 
 export type PiSessionManagerGatewayOptions = SessionDirResolverOptions;
 
-export function createPiSessionManagerGateway(options: PiSessionManagerGatewayOptions): PiSessionManagerGateway {
+export function createPiSessionManagerGateway(options: PiSessionManagerGatewayOptions): PiSessionManagerGateway & { listActivity(cwds: Iterable<string>): Promise<PiSessionListEntry[]> } {
   return new SettingsAwarePiSessionManagerGateway(new SessionDirResolver(options));
 }
 
@@ -177,6 +177,25 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
     }
     const entries = parseTranscriptEntries(await readFile(path, "utf8"));
     return { signature, identity, size: file.size, entries, branch: deriveTranscriptBranch(entries) };
+  }
+
+  /** All persisted activity, sharing the listing scanner rather than parsing SDK histories. */
+  async listActivity(cwds: Iterable<string>): Promise<PiSessionListEntry[]> {
+    const dirs = new Set([...cwds].map((cwd) => this.resolver.resolve(cwd).sessionDir));
+    const envDir = this.resolver.globalEnvSessionDir();
+    if (envDir !== undefined) dirs.add(envDir);
+    const root = this.resolver.defaultSessionsRoot();
+    try {
+      for (const entry of await readdir(root, { withFileTypes: true })) {
+        if (entry.isDirectory()) dirs.add(join(root, entry.name));
+      }
+    } catch (error) {
+      if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
+    }
+    return uniqueSessionsByPath((await Promise.all([...dirs].map(async (dir) =>
+      (await this.summaryScanner.scanSessionSummariesInDir(dir)).map((session) => ({
+        ...session, cwd: canonicalizeStoredCwd(session.cwd),
+      }))))).flat());
   }
 
   async listAll(): Promise<PiSessionListEntry[]> {
