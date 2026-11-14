@@ -61,6 +61,29 @@ describe("final Markdown HTML cache", () => {
     expect(parse).not.toHaveBeenCalled();
   });
 
+  it("bounds retained source and HTML size across large streaming prefixes", () => {
+    const prefix = "large streaming cache prefix " + "x".repeat(120_000);
+    toSafeMarkdownHtml(prefix);
+    for (let index = 1; index <= 5; index++) toSafeMarkdownHtml(prefix + "y".repeat(index));
+    const parse = vi.spyOn(marked, "parse");
+    toSafeMarkdownHtml(prefix + "yyyyy");
+    expect(parse).not.toHaveBeenCalled();
+    toSafeMarkdownHtml(prefix);
+    expect(parse).toHaveBeenCalledOnce();
+  });
+
+  it("does not retain an oversized entry or evict useful small entries for it", () => {
+    const small = "cache survives oversized source";
+    const large = "oversized source " + "z".repeat(500_000);
+    toSafeMarkdownHtml(small);
+    toSafeMarkdownHtml(large);
+    const parse = vi.spyOn(marked, "parse");
+    toSafeMarkdownHtml(small);
+    expect(parse).not.toHaveBeenCalled();
+    toSafeMarkdownHtml(large);
+    expect(parse).toHaveBeenCalledOnce();
+  });
+
   it("evicts old entries rather than growing without bound", () => {
     const text = "cache eviction sentinel";
     toSafeMarkdownHtml(text);

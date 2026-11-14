@@ -6,6 +6,7 @@ import { PromptEditor } from "../../src/client/src/components/PromptEditor";
 import { MachineSwitcher } from "../../src/client/src/components/MachineSwitcher";
 import { ModalSurface } from "../../src/client/src/components/ModalSurface";
 import { MessageActionsMenu } from "../../src/client/src/components/chat/MessageActionsMenu";
+import { createContentRenderingService } from "../../src/client/src/formatting/contentRendering";
 
 api.commands = () => Promise.resolve([{ name: "tree", source: "builtin" }]);
 api.files = () => Promise.resolve([{ path: "README.md", kind: "tracked" }]);
@@ -57,6 +58,7 @@ const layout = new ConversationLayout();
 layout.className = "conversation";
 layout.sending = true;
 const chat = new ChatView();
+chat.contentRendering = createContentRenderingService(() => []);
 chat.messages = [{ role: "user", parts: [{ type: "text", text: "Chat messages behind suggestions" }] }];
 layout.append(chat);
 const editor = new PromptEditor();

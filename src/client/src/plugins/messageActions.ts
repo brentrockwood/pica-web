@@ -51,7 +51,7 @@ export function availableDisplayedMessageActions(
 export class MessageActionAvailabilityCache {
   private inputs = "";
   private actions: readonly RegisteredMessageAction[] = [];
-  private messages = new WeakMap<ChatLine, Map<string, readonly AvailableMessageAction[]>>();
+  private messages = new WeakMap<ChatLine, WeakMap<ChatLine["parts"], Map<string, readonly AvailableMessageAction[]>>>();
 
   /** Invalidate localized labels without retiring pending invocations or transient feedback. */
   invalidate(): void {
@@ -74,16 +74,18 @@ export class MessageActionAvailabilityCache {
     // One source can have several headers with the same role (thinking/text).
     // Include canonical status: another slice can take ownership of entry actions
     // without changing this source or displayed snapshot during a stream update.
-    const snapshot = displayedMessageActionMessage(displayed);
-    const key = JSON.stringify([snapshot.role, snapshot.text, includeEntryActions]);
-    const slices = this.messages.get(message) ?? new Map<string, readonly AvailableMessageAction[]>();
-    const cached = slices.get(key);
+    const key = JSON.stringify([displayed.role, displayed.entryId, includeEntryActions]);
+    const slices = this.messages.get(message) ?? new WeakMap<ChatLine["parts"], Map<string, readonly AvailableMessageAction[]>>();
+    const variants = slices.get(displayed.parts) ?? new Map<string, readonly AvailableMessageAction[]>();
+    const cached = variants.get(key);
     if (cached !== undefined) return cached;
+    const snapshot = displayedMessageActionMessage(displayed);
     const entry = includeEntryActions ? messageActionMessage(message, displayed.role) : undefined;
     const result = actions.flatMap((action) => action.target === "display"
       ? availableDisplayedMessageActions([action], { ...context, message: snapshot })
       : entry === undefined ? [] : availableMessageActions([action], { ...context, message: entry }));
-    slices.set(key, result);
+    variants.set(key, result);
+    slices.set(displayed.parts, variants);
     this.messages.set(message, slices);
     return result;
   }

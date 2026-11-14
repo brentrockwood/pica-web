@@ -32,7 +32,10 @@ function markdownRenderer(codeBlocks: CodeBlockPolicy): Renderer {
 }
 
 const MAX_MARKDOWN_CACHE_ENTRIES = 300;
+// Bound retained streaming prefixes as well as the number of small messages.
+const MAX_MARKDOWN_CACHE_CHARACTERS = 1_000_000;
 const markdownHtmlCache = new Map<string, string>();
+let markdownCacheCharacters = 0;
 
 export function toSafeMarkdownHtml(text: string, workspace?: MarkdownWorkspaceContext, imageIntentKey?: string, imagesEnabled = true, codeBlocks: CodeBlockPolicy = DEFAULT_CODE_BLOCK_POLICY): string {
   // Overflow is applied at the component boundary; preview policy does not alter HTML.
@@ -44,10 +47,16 @@ export function toSafeMarkdownHtml(text: string, workspace?: MarkdownWorkspaceCo
   if (cached !== undefined) return cached;
   const html = marked.parse(text, { async: false, breaks: true, gfm: true, renderer: markdownRenderer(codeBlocks) });
   const safeHtml = sanitizeHtml(html, workspace, imageIntentKey, imagesEnabled);
-  markdownHtmlCache.set(key, safeHtml);
-  if (markdownHtmlCache.size > MAX_MARKDOWN_CACHE_ENTRIES) {
-    const oldest = markdownHtmlCache.keys().next().value;
-    if (oldest !== undefined) markdownHtmlCache.delete(oldest);
+  const characters = key.length + safeHtml.length;
+  if (characters <= MAX_MARKDOWN_CACHE_CHARACTERS) {
+    markdownHtmlCache.set(key, safeHtml);
+    markdownCacheCharacters += characters;
+    while (markdownHtmlCache.size > MAX_MARKDOWN_CACHE_ENTRIES || markdownCacheCharacters > MAX_MARKDOWN_CACHE_CHARACTERS) {
+      const oldest = markdownHtmlCache.entries().next().value;
+      if (oldest === undefined) break;
+      markdownHtmlCache.delete(oldest[0]);
+      markdownCacheCharacters -= oldest[0].length + oldest[1].length;
+    }
   }
   return safeHtml;
 }

@@ -275,3 +275,20 @@ describe("summarizeChatGroup", () => {
     expect(summarizeChatGroup([text("tool", "a"), text("system", "b"), text("tool", "c")])).toBe("3 events · 2 tool · 1 system");
   });
 });
+
+
+it("retains historical slice identities while updating indexes and changed lines", () => {
+  const source: ChatLine = { role: "assistant", parts: [{ type: "thinking", text: "plan" }, { type: "text", text: "reply" }] };
+  const first = groupChatMessages([source]);
+  const next = groupChatMessages([source], 10);
+  expect(next[0]?.kind).toBe("group");
+  if (first[0]?.kind !== "group" || next[0]?.kind !== "group") throw new Error("Missing technical slice");
+  expect(next[0].messages[0]?.message).toBe(first[0].messages[0]?.message);
+  expect(next[0].messages[0]?.index).toBe(10);
+  if (first[1]?.kind !== "message" || next[1]?.kind !== "message") throw new Error("Missing readable slice");
+  expect(next[1].message).toBe(first[1].message);
+  const changed = groupChatMessages([{ ...source, parts: [...source.parts, { type: "text", text: "new" }] }]);
+  if (changed[1]?.kind !== "message") throw new Error("Missing changed slice");
+  expect(changed[1].message).not.toBe(first[1].message);
+  expect(changed[1].message.parts).toHaveLength(2);
+});

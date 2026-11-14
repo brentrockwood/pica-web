@@ -38,21 +38,16 @@ export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGr
   };
 
   messages.forEach((message, index) => {
-    const visibleParts = message.parts.filter((part) => part.type !== "toolResultBoundary" && part.type !== "empty");
-    // Ordering markers affect the conversation tail, not visual grouping.
-    if (visibleParts.length === 0) return;
-    const readableParts = visibleParts.filter((part) => isReadablePart(message, part));
-    const technicalParts = visibleParts.filter((part) => !isReadablePart(message, part));
-
+    const { technical, readable } = messageSlices(message);
+    const technicalParts = technical.parts;
+    const readableParts = readable.parts;
     const absoluteIndex = indexOffset + index;
-    const metadata = { ...(message.entryId === undefined ? {} : { entryId: message.entryId }), ...(message.source === undefined ? {} : { source: message.source }), ...(message.meta === undefined ? {} : { meta: message.meta }) };
     if (technicalParts.length) {
-      const role = technicalParts.every((part) => part.type === "skillRead") ? "skill" : message.role;
-      pushEvent({ role, parts: technicalParts, ...metadata }, absoluteIndex);
+      pushEvent(technical, absoluteIndex);
     }
     if (readableParts.length) {
       flushEvents();
-      const readableMessage = { role: message.role, parts: readableParts, ...metadata };
+      const readableMessage = readable;
       if (isToolImageMessage(readableMessage)) {
         const toolName = toolNameFromParts(technicalParts);
         groups.push({ kind: "tool-image", message: readableMessage, index: absoluteIndex, ...(toolName === undefined ? {} : { toolName }) });
@@ -63,6 +58,24 @@ export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGr
   });
   flushEvents();
   return groups;
+}
+
+// Transcript updates replace changed lines; historical slices can retain identity.
+const slicesByMessage = new WeakMap<ChatLine, { technical: ChatLine; readable: ChatLine }>();
+
+function messageSlices(message: ChatLine): { technical: ChatLine; readable: ChatLine } {
+  const cached = slicesByMessage.get(message);
+  if (cached !== undefined) return cached;
+  const visibleParts = message.parts.filter((part) => part.type !== "toolResultBoundary" && part.type !== "empty");
+  const readableParts = visibleParts.filter((part) => isReadablePart(message, part));
+  const technicalParts = visibleParts.filter((part) => !isReadablePart(message, part));
+  const metadata = { ...(message.entryId === undefined ? {} : { entryId: message.entryId }), ...(message.source === undefined ? {} : { source: message.source }), ...(message.meta === undefined ? {} : { meta: message.meta }) };
+  const slices = {
+    technical: { role: technicalParts.every((part) => part.type === "skillRead") ? "skill" as const : message.role, parts: technicalParts, ...metadata },
+    readable: { role: message.role, parts: readableParts, ...metadata },
+  };
+  slicesByMessage.set(message, slices);
+  return slices;
 }
 
 /** Whether this slice renders a message header rather than a headerless shell. */

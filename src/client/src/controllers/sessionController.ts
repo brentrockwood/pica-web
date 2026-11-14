@@ -2363,8 +2363,8 @@ export class SessionController {
       return;
     }
 
-    // Status and activity arrive once per token (the server republishes them on
-    // every transcript event). Buffer them alongside high-frequency transcript
+    // Activity arrives per token; older daemons also send status per token.
+    // Buffer both alongside high-frequency transcript
     // deltas so the host component renders at most once per animation frame
     // instead of once per token. Coalescing these here is what keeps the prompt
     // editor's DOM stable during streaming, so in-progress touch gestures (e.g.
@@ -2548,8 +2548,7 @@ export class SessionController {
     if (this.pendingTranscriptEvents.length > 0) {
       const events = this.pendingTranscriptEvents;
       this.pendingTranscriptEvents = [];
-      let messages = this.getState().messages;
-      for (const event of events) messages = this.transcripts.applyLiveEvent(messages, event) ?? messages;
+      const messages = this.transcripts.applyLiveEvents(this.getState().messages, events);
       if (messages !== this.getState().messages) this.setState({ messages });
     }
     if (this.pendingActivityBySession.size > 0) {
