@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   deploy:
+    if: github.repository == 'jmfederico/pi-web'
     name: Deploy patched release docs to pi-web.dev
     runs-on: ubuntu-latest
     concurrency:

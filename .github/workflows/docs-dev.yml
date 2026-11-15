@@ -23,6 +23,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.repository == 'jmfederico/pi-web'
     name: Deploy to pi-web.dev/dev
     runs-on: ubuntu-latest
     steps:
