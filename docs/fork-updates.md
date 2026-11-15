@@ -2,7 +2,7 @@
 
 This checkout is a customized fork, not an installation of the upstream npm package. Updating the global `pi-web` command does not update services running from this source tree. The built-in updater follows the current branch's tracking remote; it does not integrate releases from a different upstream repository or resolve fork conflicts.
 
-Latest prepared integration: [1.202611.1 status and verification](fork-update-1.202611.1.md).
+Latest prepared integration: [1.202611.3 status and verification](fork-update-1.202611.3.md), including two reproduced upstream WebKit test failures. Earlier verification: [1.202611.1](fork-update-1.202611.1.md).
 
 Use this procedure for upstream integrations. Keep preparation separate from activation: development services can reload source changes immediately, even before the session daemon restarts.
 

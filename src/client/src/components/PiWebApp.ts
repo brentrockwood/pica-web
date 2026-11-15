@@ -92,6 +92,8 @@ import "./RestartDialog";
 import type { RestartDialog } from "./RestartDialog";
 import "./SessionTreeNavigator";
 import "./ConversationLayout";
+import type { QuestionActions } from "./questionActions";
+import { openTranscriptQuestion } from "../chatQuestions";
 import "./ConversationSyncNotice";
 import "./ChatView";
 import type { ChatView } from "./ChatView";
@@ -191,6 +193,9 @@ export class PiWebApp extends LitElement {
   private legacyErrorRevision = 0;
   @query("chat-view") private chatView?: ChatView;
   @state() private machineNameEditTarget: Machine | undefined;
+  @state() private questionActions: QuestionActions | undefined;
+  private readonly handleQuestionActionsChange = (actions: QuestionActions | undefined) => { this.questionActions = actions; };
+  private readonly handleChatMode = () => { this.promptEditor?.focusInput(); };
   @state() private chatNavigation: TemplateResult | undefined;
   private readonly handleChatNavigationChange = (controls: TemplateResult) => { this.chatNavigation = controls; };
   @query("prompt-editor") private promptEditor?: PromptEditor;
@@ -2384,10 +2389,17 @@ export class PiWebApp extends LitElement {
     focusNavigationTarget: (target: NavigationFocusTarget) => { this.cancelAutomaticProjectNavigation(); void this.focusNavigationTarget(target); },
     cancelKeyboardNavigation: () => { this.cancelAutomaticProjectNavigation(); void this.openChatAndFocusComposer(); },
     moveProject: (project: Project, direction: -1 | 1) => { this.moveNavigationItem({ kind: "projects", machineId: selectedMachineId(this.state) }, project.id, direction); },
+    reorderProject: (project: Project, neighbor: Project, position: "before" | "after") => { this.reorderNavigationItem({ kind: "projects", machineId: selectedMachineId(this.state) }, project.id, neighbor.id, position); },
     moveWorkspace: (workspace: Workspace, direction: -1 | 1) => { this.moveNavigationItem({ kind: "workspaces", machineId: selectedMachineId(this.state), projectId: workspace.projectId }, workspace.id, direction); },
+    reorderWorkspace: (workspace: Workspace, neighbor: Workspace, position: "before" | "after") => { this.reorderNavigationItem({ kind: "workspaces", machineId: selectedMachineId(this.state), projectId: workspace.projectId }, workspace.id, neighbor.id, position); },
     pinSession: (session: SessionInfo) => { this.changeSessionPin(session, "pin"); },
     unpinSession: (session: SessionInfo) => { this.changeSessionPin(session, "unpin"); },
     moveSessionPin: (session: SessionInfo, direction: -1 | 1) => { this.changeSessionPin(session, direction); },
+    reorderSessionPin: (session: SessionInfo, neighbor: SessionInfo, position: "before" | "after") => {
+      const workspace = this.state.selectedWorkspace;
+      if (workspace === undefined) return;
+      this.reorderNavigationItem({ kind: "sessionPins", machineId: selectedMachineId(this.state), projectId: workspace.projectId, workspaceId: workspace.id }, session.id, neighbor.id, position);
+    },
   };
 
   private workspaceDeletionInput: AppState["workspaceDeletionRuns"] | undefined;
@@ -2414,6 +2426,21 @@ export class PiWebApp extends LitElement {
       const displayed = orderItems(visibleIds.map((id) => ({ id })), ids).map((item) => item.id);
       const neighbor = displayed[displayed.indexOf(id) + direction];
       return neighbor === undefined ? ids : moveOrderedId(ids, displayed, id, neighbor, direction < 0 ? "before" : "after");
+    }).catch(() => undefined);
+  }
+
+  private reorderNavigationItem(scope: NavigationOrderScope, id: string, neighborId: string, placement: "before" | "after"): void {
+    const items = scope.kind === "projects" ? this.state.projects
+      : scope.kind === "workspaces" ? this.state.workspaces.filter((workspace) => workspace.projectId === scope.projectId)
+        : this.state.sessions.filter((session) => session.parentSessionPath === undefined && session.archived !== true);
+    const visibleIds = items.map((item) => item.id);
+    // Resolve against the preceding acknowledged order, preserving hidden entries.
+    // The controller reports persistence errors through the shared browser error surface.
+    void this.navigationOrder.mutate(scope, (ids) => {
+      const displayed = scope.kind === "sessionPins" ? ids.filter((pin) => visibleIds.includes(pin))
+        : orderItems(visibleIds.map((visibleId) => ({ id: visibleId })), ids).map((item) => item.id);
+      if (!displayed.includes(id) || !displayed.includes(neighborId)) return ids;
+      return moveOrderedId(ids, displayed, id, neighborId, placement);
     }).catch(() => undefined);
   }
 
@@ -2484,10 +2511,13 @@ export class PiWebApp extends LitElement {
         .onSelectProject=${this.navigationActions.selectProject}
         .onCloseProject=${this.navigationActions.closeProject}
         .onMoveProject=${this.navigationActions.moveProject}
+        .onReorderProject=${this.navigationActions.reorderProject}
         .onMoveWorkspace=${this.navigationActions.moveWorkspace}
+        .onReorderWorkspace=${this.navigationActions.reorderWorkspace}
         .onPinSession=${this.navigationActions.pinSession}
         .onUnpinSession=${this.navigationActions.unpinSession}
         .onMoveSessionPin=${this.navigationActions.moveSessionPin}
+        .onReorderSessionPin=${this.navigationActions.reorderSessionPin}
         .onSelectWorkspace=${this.navigationActions.selectWorkspace}
         .onDeleteWorkspace=${this.navigationActions.deleteWorkspace}
         .onArchivedCollapsed=${this.navigationActions.archivedCollapsed}
@@ -4288,7 +4318,7 @@ export class PiWebApp extends LitElement {
       this.chatWorkspaceContext = workspaceContext;
     }
     return html`
-      <chat-view .onNavigationChange=${this.handleChatNavigationChange} .quietMode=${this.quietMode} .showMessageTimestamps=${this.showMessageTimestamps} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .transcriptRenderers=${this.plugins.getTranscriptRenderers(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .pendingPrompts=${state.pendingPrompts[machineSessionKey(selectedMachineId(state), session.id)] ?? this.emptyPendingPrompts} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .onClearServerQueue=${this.handleClearServerQueue} .onQueuedMessageAction=${session.archived === true ? undefined : this.handleQueuedMessageAction} .queuedMessageActionPending=${this.queuedMessageActionTarget !== undefined || this.messageRevertTarget !== undefined} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view .onQuestionActionsChange=${this.handleQuestionActionsChange} .onNavigationChange=${this.handleChatNavigationChange} .quietMode=${this.quietMode} .showMessageTimestamps=${this.showMessageTimestamps} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .transcriptRenderers=${this.plugins.getTranscriptRenderers(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .pendingPrompts=${state.pendingPrompts[machineSessionKey(selectedMachineId(state), session.id)] ?? this.emptyPendingPrompts} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .onClearServerQueue=${this.handleClearServerQueue} .onQueuedMessageAction=${session.archived === true ? undefined : this.handleQueuedMessageAction} .queuedMessageActionPending=${this.queuedMessageActionTarget !== undefined || this.messageRevertTarget !== undefined} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
 
@@ -4554,6 +4584,15 @@ export class PiWebApp extends LitElement {
     const state = this.state;
     const mainView = this.effectiveMainView();
     const activityNoticeVisible = this.unacknowledgedActivitySessionKey(state) !== undefined;
+    const openQuestion = openTranscriptQuestion(state.messages, {
+      historyReady: this.readyChatIdentity === selectedChatIdentity(state),
+      messageEnd: state.messagePageEnd,
+      messageTotal: state.messagePageTotal,
+      writable: state.selectedSession !== undefined && state.selectedSession.archived !== true,
+    });
+    const questionKey = state.selectedSession === undefined || openQuestion === undefined ? undefined
+      : JSON.stringify([machineSessionKey(selectedMachineId(state), state.selectedSession.id), openQuestion.askId]);
+    const questionActions = this.questionActions?.key === questionKey ? this.questionActions : undefined;
     return html`
       <div class=${`${this.panelCollapse.shellClass(mainView)}${this.isDesktopSideBySideLayout() ? "" : " two-column-layout"}`} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
@@ -4567,7 +4606,7 @@ export class PiWebApp extends LitElement {
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession && !this.sessions.isChatLoadDeferred && (this.isChatVisible() || this.displayedChatIdentity === selectedChatIdentity(state)) ? html`
             ${this.isChatVisible() ? html`<conversation-sync-notice .state=${state.conversationSync} .onRetry=${() => { void this.sessions.resumeSelectedSession({ reconnect: true }); }}></conversation-sync-notice>` : null}
-            <conversation-layout .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects}>
+            <conversation-layout .questionActions=${questionActions} .onChatMode=${this.handleChatMode} .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects}>
             ${this.renderChatView(state, state.selectedSession)}
             <div class="composer-area" slot="composer">
               <prompt-editor .chatNavigation=${this.chatNavigation} ?inert=${activityNoticeVisible || this.isRevertingMessage(state)} .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .defaultStreamingBehavior=${this.defaultStreamingBehavior} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${state.selectedSession.archived === true || activityNoticeVisible || this.isRevertingMessage(state)} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
