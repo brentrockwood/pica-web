@@ -33,7 +33,7 @@ function markdownRenderer(codeBlocks: CodeBlockPolicy): Renderer {
 }
 
 const MAX_MARKDOWN_CACHE_ENTRIES = 300;
-const MAX_MARKDOWN_CACHE_CHARACTERS = 2_000_000;
+const MAX_MARKDOWN_CACHE_CHARACTERS = 1_000_000;
 const markdownCaches = new WeakMap<MarkdownEngine, { entries: Map<string, MarkdownParseResult>; characters: number }>();
 
 export function toSafeMarkdownHtml(text: string, workspace?: MarkdownWorkspaceContext, imageIntentKey?: string, imagesEnabled = true, codeBlocks: CodeBlockPolicy = DEFAULT_CODE_BLOCK_POLICY): string {
@@ -56,13 +56,17 @@ export function parseChatMarkdown(text: string, workspace?: MarkdownWorkspaceCon
   const cached = markdownHtmlCache.get(key);
   if (cached !== undefined) return cached;
   const parsed = engine.parse(text, markdownRenderer(codeBlocks), (html) => sanitizeHtml(html, workspace, imageIntentKey, imagesEnabled));
-  markdownHtmlCache.set(key, parsed);
-  cache.characters += cachedCharacters(key, parsed);
-  while (markdownHtmlCache.size > MAX_MARKDOWN_CACHE_ENTRIES || cache.characters > MAX_MARKDOWN_CACHE_CHARACTERS) {
-    const oldest = markdownHtmlCache.entries().next().value;
-    if (oldest === undefined) break;
-    cache.characters -= cachedCharacters(...oldest);
-    markdownHtmlCache.delete(oldest[0]);
+  const characters = cachedCharacters(key, parsed);
+  // Oversized streaming prefixes must not evict reusable small messages.
+  if (characters <= MAX_MARKDOWN_CACHE_CHARACTERS) {
+    markdownHtmlCache.set(key, parsed);
+    cache.characters += characters;
+    while (markdownHtmlCache.size > MAX_MARKDOWN_CACHE_ENTRIES || cache.characters > MAX_MARKDOWN_CACHE_CHARACTERS) {
+      const oldest = markdownHtmlCache.entries().next().value;
+      if (oldest === undefined) break;
+      cache.characters -= cachedCharacters(...oldest);
+      markdownHtmlCache.delete(oldest[0]);
+    }
   }
   return parsed;
 }

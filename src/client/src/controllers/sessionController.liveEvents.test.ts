@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { ChatTranscriptStore } from "../chatTranscriptStore";
+import { describe, expect, it, vi } from "vitest";
 import { initialAppState } from "../appState";
 import { SessionController } from "./sessionController";
 import { defaultApi, EmitSocket, emptyPage, FakeSocket, oldSession, runPendingAnimationFrames, status, workspace, type AppState, type SessionActivity, type SessionInfo } from "./sessionController.testSupport";
@@ -172,4 +173,34 @@ describe("SessionController live events", () => {
 
     expect(state.sessions.map((session) => session.id)).toEqual(["old-session"]);
   });
+});
+
+
+it("batches accepted deltas and flushes before message finalization without replaying old sequences", async () => {
+  const socket = new EmitSocket();
+  const transcripts = new ChatTranscriptStore({ read: () => undefined, write: () => undefined });
+  const apply = vi.spyOn(transcripts, "applyLiveEvent");
+  let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+  const controller = new SessionController(
+    () => state, (patch) => { state = { ...state, ...patch }; }, () => undefined, undefined,
+    { transcripts, socket, api: { ...defaultApi, transcriptSnapshot: () => Promise.resolve({ page: emptyPage, status: status(oldSession.id), seq: 10, partial: null }) } },
+  );
+  try {
+    await controller.selectSession(oldSession, { updateUrl: false });
+    socket.emit({ type: "assistant.delta", seq: 10, streamId: "s", text: "stale" });
+    socket.emit({ type: "assistant.delta", seq: 11, streamId: "s", text: "a" });
+    socket.emit({ type: "assistant.delta", seq: 12, streamId: "s", text: "b" });
+    expect(apply).not.toHaveBeenCalled();
+    controller.flushPendingUpdates();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(state.messages[0]?.parts).toEqual([{ type: "text", text: "ab" }]);
+    socket.emit({ type: "assistant.delta", seq: 13, streamId: "s", text: "c" });
+    socket.emit({ type: "message.end", seq: 14, message: { role: "assistant", streamId: "s", content: "final" } });
+    expect(apply.mock.calls.map((call) => call[1].type)).toEqual(["assistant.delta", "assistant.delta", "message.end"]);
+    expect(state.messages[0]?.parts).toEqual([{ type: "text", text: "final" }]);
+    controller.flushPendingUpdates();
+    expect(apply).toHaveBeenCalledTimes(3);
+  } finally {
+    controller.dispose();
+  }
 });

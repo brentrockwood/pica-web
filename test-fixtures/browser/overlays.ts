@@ -22,6 +22,7 @@ import { applyPiWebTheme } from "../../src/client/src/theme";
 import type { QualifiedThemeContribution } from "../../src/client/src/plugins/types";
 import { NotificationArea } from "../../src/client/src/components/NotificationArea";
 import type { NotificationGroup, NotificationItem } from "../../src/client/src/notificationArea";
+import { createContentRenderingService } from "../../src/client/src/formatting/contentRendering";
 
 api.commands = () => Promise.resolve([{ name: "tree", source: "builtin" }]);
 api.files = () => Promise.resolve([{ path: "README.md", kind: "tracked" }]);
@@ -90,6 +91,7 @@ const layout = new ConversationLayout();
 layout.className = "conversation";
 layout.sending = true;
 const chat = new ChatView();
+chat.contentRendering = createContentRenderingService(() => []);
 chat.messages = [{ role: "user", parts: [{ type: "text", text: "Chat messages behind suggestions" }] }];
 layout.append(chat);
 const editor = new PromptEditor();

@@ -74,10 +74,11 @@ export function createContentRenderingService(select: SelectRenderer, revision?:
   const renderMarkdown = (request: ParsedMarkdownRenderRequest, identity?: string, sourcePolicy?: CodeBlockSourcePolicy): TemplateResult => {
       const template = document.createElement("template");
       template.innerHTML = request.parsed?.html ?? request.toSafeHtml(request.text);
-      const tokens = request.parsed?.codeBlocks ?? legacyCodeTokens(request.text);
-      const hosts = new Map<Node, TemplateResult>();
       const blockSelector = "pre, .plain-code-block";
-      template.content.querySelectorAll(blockSelector).forEach((block, index) => {
+      const blocks = template.content.querySelectorAll(blockSelector);
+      const tokens = blocks.length === 0 ? [] : request.parsed?.codeBlocks ?? legacyCodeTokens(request.text);
+      const hosts = new Map<Node, TemplateResult>();
+      blocks.forEach((block, index) => {
         const token = tokens[index];
         if (token === undefined || (block.tagName === "PRE" && block.querySelector("code") === null)) return;
         const text = token.text;

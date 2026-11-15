@@ -62,6 +62,26 @@ export class ChatTranscriptStore {
     return applyTranscriptEvent(messages, event);
   }
 
+  /** Coalesce only adjacent compatible deltas, after socket watermark filtering. */
+  applyLiveEvents(messages: ChatLine[], events: readonly SessionUiEvent[]): ChatLine[] {
+    for (let index = 0; index < events.length; index++) {
+      let event = events[index];
+      if (event === undefined) continue;
+      if (event.type === "assistant.delta" || event.type === "assistant.thinking.delta") {
+        const chunks = [event.text];
+        let next = events[index + 1];
+        while (next?.type === event.type && next.streamId === event.streamId) {
+          chunks.push(next.text);
+          index++;
+          next = events[index + 1];
+        }
+        if (chunks.length > 1) event = { ...event, text: chunks.join("") };
+      }
+      messages = this.applyLiveEvent(messages, event) ?? messages;
+    }
+    return messages;
+  }
+
   /**
    * Seed the join-time in-flight partial assistant message on top of the
    * committed history view. Returns a new in-memory message list; the raw

@@ -419,3 +419,24 @@ describe("message action registry", () => {
     await registry.dispose();
   });
 });
+
+
+it("does not reread historical text on availability cache hits and invalidates labels", () => {
+  const readText = vi.fn(() => "long historical text".repeat(1000));
+  const message: ChatLine = { entryId: "entry", role: "assistant", parts: [{ type: "text", get text() { return readText(); } }] };
+  const visible = vi.fn(() => true);
+  const actions = [registered({ target: "display", id: "copy", title: "Copy", visible, run: () => undefined })];
+  const cache = new MessageActionAvailabilityCache();
+  const base = { machine: input.machine, session: input.session };
+  const first = cache.get(message, actions, base);
+  const reads = readText.mock.calls.length;
+  for (let index = 0; index < 100; index++) expect(cache.get(message, actions, base)).toBe(first);
+  expect(readText).toHaveBeenCalledTimes(reads);
+  expect(visible).toHaveBeenCalledTimes(1);
+  cache.invalidate();
+  expect(cache.get(message, actions, base)).not.toBe(first);
+  expect(visible).toHaveBeenCalledTimes(2);
+  const changed = { ...message, parts: [{ type: "text" as const, text: "changed" }] };
+  cache.get(changed, actions, base);
+  expect(visible).toHaveBeenCalledTimes(3);
+});

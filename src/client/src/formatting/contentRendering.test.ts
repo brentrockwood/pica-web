@@ -2,6 +2,7 @@
 import { useDeferredContent, settleDeferredContent } from "./deferredContent.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, render, type TemplateResult } from "lit";
+import { marked } from "marked";
 import type { ContentRendererContribution, ContentRendererInput } from "../../../plugin-api";
 import { FormattedText } from "../components/FormattedText";
 import { ContentRendererHost } from "../components/ContentRendererHost";
@@ -10,7 +11,7 @@ import { writeClipboardText } from "../clipboard";
 import { PluginRegistry } from "../plugins/registry";
 import { createDocumentMarkdownRenderer, sanitizeDocumentMarkdownHtml } from "./documentMarkdown";
 import { defaultMarkdownEngine } from "./markdownEngine";
-import { createContentRenderingCapability, MAX_CONTENT_RENDERER_LENGTH } from "./contentRendering";
+import { createContentRenderingCapability, createContentRenderingService, MAX_CONTENT_RENDERER_LENGTH } from "./contentRendering";
 import { PLAIN_CODE_BLOCK_POLICY } from "./codeBlockPolicy";
 
 vi.mock("../clipboard", () => ({ writeClipboardText: vi.fn().mockResolvedValue(true) }));
@@ -64,6 +65,19 @@ function button(host: ContentRendererHost, label: string): HTMLButtonElement {
 }
 
 describe("shared content rendering", () => {
+  it("does not lex prose again for previews, including code removed by the caller sanitizer", () => {
+    const lexer = vi.spyOn(marked, "lexer");
+    const select = vi.fn(() => []);
+    const service = createContentRenderingService(select);
+    const root = document.createElement("div");
+    for (const text of ["Streaming prose", "Streaming prose grows", "```test\nomitted\n```"]) {
+      render(service.renderMarkdown({ machineId: "local", text, toSafeHtml: () => "<p>Readable prose</p>" }), root);
+      expect(root.querySelector("p")?.textContent).toBe("Readable prose");
+    }
+    expect(lexer).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+  });
+
   it("passes file and chat fence metadata through the service to renderer inputs", async () => {
     const draw = vi.fn<ContentRendererContribution["render"]>(() => html`preview`);
     const capability = createContentRenderingCapability(() => [{ id: "test", label: "Test", renderer: renderer(draw) }]);

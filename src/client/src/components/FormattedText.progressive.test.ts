@@ -88,6 +88,56 @@ it.each([false, true])("keeps formatted content without a raw tail between strea
   expect(view.renderRoot.querySelector<HTMLElement>(".pending-source")?.hidden).toBe(true);
 });
 
+it("publishes successive streaming updates in one turn while optional previews remain offscreen", async () => {
+  const intersect = viewport();
+  const draw = vi.fn<ContentRendererContribution["render"]>(() => html`<b>Preview</b>`);
+  const view = new FormattedText();
+  view.text = "```test\nsource\n```\n\nA **streaming** paragraph";
+  view.contentRendering = createContentRenderingService(() => [{
+    id: "test", label: "Test", renderer: { id: "test", renderMode: "automatic", render: draw },
+  }]);
+  document.body.append(view);
+  await view.updateComplete;
+  intersect(view, true);
+  await settleDeferredContent(view);
+  const host = view.renderRoot.querySelector<ContentRendererHost>("pi-web-content-renderer");
+  if (host === null) throw new Error("Missing preview host");
+  const raw = host.renderRoot.querySelector("pre");
+
+  for (const chunk of [" with", " more", " words"]) {
+    view.text += chunk;
+    await advanceContentFrame(view);
+    expect(view.renderRoot.querySelector("p")?.textContent).toBe(view.text.split("\n\n")[1]?.replaceAll("**", ""));
+    expect(view.renderRoot.querySelector<HTMLElement>(".pending-source")?.hidden).toBe(true);
+    expect(view.renderRoot.querySelector("pi-web-content-renderer")).toBe(host);
+    expect(host.renderRoot.querySelector("pre")).toBe(raw);
+    expect(draw).not.toHaveBeenCalled();
+  }
+  intersect(host, true);
+  await settleDeferredContent(view);
+  expect(draw).toHaveBeenCalledOnce();
+});
+
+it("keeps a queued formatting turn when text arrives between the frame and its timer", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const view = new FormattedText();
+    view.text = "**First**";
+    document.body.append(view);
+    await view.updateComplete;
+    const callback = vi.mocked(requestAnimationFrame).mock.calls.at(-1)?.[0];
+    if (callback === undefined) throw new Error("Missing formatting frame");
+    callback(0);
+    view.text += " latest";
+    await view.updateComplete;
+    await vi.advanceTimersByTimeAsync(0);
+    await view.updateComplete;
+    expect(view.renderRoot.querySelector("p")?.textContent).toBe("First latest");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("shows replacement source immediately instead of stale formatted content", async () => {
   const view = new FormattedText();
   view.text = "**Original**";

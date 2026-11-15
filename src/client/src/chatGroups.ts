@@ -43,23 +43,16 @@ export function groupChatMessages(
   };
 
   messages.forEach((message, index) => {
-    const parts = message.parts.flatMap((part) => part.type === "customMessage" && !preserveCustomMessage(part.customType)
-      ? part.parts : [part]);
-    const visibleParts = parts.filter((part) => part.type !== "toolResultBoundary" && part.type !== "empty");
-    // Ordering markers affect the conversation tail, not visual grouping.
-    if (visibleParts.length === 0) return;
-    const readableParts = visibleParts.filter((part) => isReadablePart(message, part));
-    const technicalParts = visibleParts.filter((part) => !isReadablePart(message, part));
-
+    const { technical, readable } = messageSlices(message, preserveCustomMessage);
+    const technicalParts = technical.parts;
+    const readableParts = readable.parts;
     const absoluteIndex = indexOffset + index;
-    const metadata = { ...(message.entryId === undefined ? {} : { entryId: message.entryId }), ...(message.source === undefined ? {} : { source: message.source }), ...(message.meta === undefined ? {} : { meta: message.meta }) };
     if (technicalParts.length) {
-      const role = technicalParts.every((part) => part.type === "skillRead") ? "skill" : message.role;
-      pushEvent({ role, parts: technicalParts, ...metadata }, absoluteIndex);
+      pushEvent(technical, absoluteIndex);
     }
     if (readableParts.length) {
       flushEvents();
-      const readableMessage = { role: message.role, parts: readableParts, ...metadata };
+      const readableMessage = readable;
       if (isToolImageMessage(readableMessage)) {
         const toolName = toolNameFromParts(technicalParts);
         groups.push({ kind: "tool-image", message: readableMessage, index: absoluteIndex, ...(toolName === undefined ? {} : { toolName }) });
@@ -70,6 +63,29 @@ export function groupChatMessages(
   });
   flushEvents();
   return groups;
+}
+
+// Transcript updates replace changed lines; historical slices can retain identity.
+const slicesByMessage = new WeakMap<ChatLine, { technical: ChatLine; readable: ChatLine; policy: string }>();
+
+function messageSlices(message: ChatLine, preserveCustomMessage: (customType: string) => boolean): { technical: ChatLine; readable: ChatLine } {
+  // Renderer eligibility may change without replacing the transcript line.
+  const preserved = message.parts.filter((part) => part.type === "customMessage" && preserveCustomMessage(part.customType));
+  const policy = JSON.stringify(preserved.map((part) => message.parts.indexOf(part)));
+  const cached = slicesByMessage.get(message);
+  if (cached?.policy === policy) return cached;
+  const parts = message.parts.flatMap((part) => part.type === "customMessage" && !preserved.includes(part) ? part.parts : [part]);
+  const visibleParts = parts.filter((part) => part.type !== "toolResultBoundary" && part.type !== "empty");
+  const readableParts = visibleParts.filter((part) => isReadablePart(message, part));
+  const technicalParts = visibleParts.filter((part) => !isReadablePart(message, part));
+  const metadata = { ...(message.entryId === undefined ? {} : { entryId: message.entryId }), ...(message.source === undefined ? {} : { source: message.source }), ...(message.meta === undefined ? {} : { meta: message.meta }) };
+  const slices = {
+    policy,
+    technical: { role: technicalParts.every((part) => part.type === "skillRead") ? "skill" as const : message.role, parts: technicalParts, ...metadata },
+    readable: { role: message.role, parts: readableParts, ...metadata },
+  };
+  slicesByMessage.set(message, slices);
+  return slices;
 }
 
 /** Whether this slice renders a message header rather than a headerless shell. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalEntryActionHeaders, groupChatMessages, groupConsecutiveImageOutputs, type ChatGroup } from "./chatGroups";
+import { canonicalEntryActionHeaders, summarizeChatGroup, groupChatMessages, groupConsecutiveImageOutputs, type ChatGroup } from "./chatGroups";
 import type { ChatLine } from "./components/shared";
 import type { ChatFallbackPart } from "./chatTypes";
 
@@ -32,6 +32,26 @@ describe("groupChatMessages", () => {
     expect(groupChatMessages([card], 10, (customType) => customType === "extension.card")).toEqual([
       { kind: "message", index: 10, message: card },
     ]);
+  });
+
+  it("reuses custom slices only while renderer eligibility is unchanged", () => {
+    const card: ChatLine = { role: "system", entryId: "card", parts: [{
+      type: "customMessage", customType: "extension.card", content: "raw", parts: [{ type: "text", text: "fallback" }],
+    }] };
+    let enabled = true;
+    const preserve = () => enabled;
+    const first = groupChatMessages([card], 0, preserve)[0];
+    const next = groupChatMessages([card], 10, () => true)[0];
+    if (first?.kind !== "message" || next?.kind !== "message") throw new Error("Missing card");
+    expect(next.message).toBe(first.message);
+    expect(next.index).toBe(10);
+    enabled = false;
+    const fallback = groupChatMessages([card], 0, preserve)[0];
+    if (fallback?.kind !== "message") throw new Error("Missing fallback");
+    expect(fallback.message.parts).toEqual([{ type: "text", text: "fallback" }]);
+    expect(fallback.message).not.toBe(first.message);
+    enabled = true;
+    expect(groupChatMessages([card], 0, preserve)).toEqual([first]);
   });
 
   it("keeps successful intervention requests out of collapsed activity", () => {
@@ -301,4 +321,35 @@ it("gives top-level question requests the canonical header while hiding coalesce
   expect(groups.map((group) => group.kind)).toEqual(["group", "message", "message"]);
   expect(groups[1]).toEqual({ kind: "message", index: 1, message: question });
   expect([...canonicalEntryActionHeaders(groups)]).toEqual([renderedMessages(groups)[2]]);
+});
+
+describe("summarizeChatGroup", () => {
+  it("summarizes special event groups", () => {
+    expect(summarizeChatGroup([{ ...text("assistant", "a"), source: "compaction" }])).toBe("1 history compaction summary");
+    expect(summarizeChatGroup([
+      { ...text("assistant", "a"), source: "branch_summary" },
+      { ...text("assistant", "b"), source: "branch_summary" },
+    ])).toBe("2 branch summaries");
+  });
+
+  it("summarizes mixed groups by role counts", () => {
+    expect(summarizeChatGroup([text("tool", "a"), text("system", "b"), text("tool", "c")])).toBe("3 events · 2 tool · 1 system");
+  });
+});
+
+
+it("retains historical slice identities while updating indexes and changed lines", () => {
+  const source: ChatLine = { role: "assistant", parts: [{ type: "thinking", text: "plan" }, { type: "text", text: "reply" }] };
+  const first = groupChatMessages([source]);
+  const next = groupChatMessages([source], 10);
+  expect(next[0]?.kind).toBe("group");
+  if (first[0]?.kind !== "group" || next[0]?.kind !== "group") throw new Error("Missing technical slice");
+  expect(next[0].messages[0]?.message).toBe(first[0].messages[0]?.message);
+  expect(next[0].messages[0]?.index).toBe(10);
+  if (first[1]?.kind !== "message" || next[1]?.kind !== "message") throw new Error("Missing readable slice");
+  expect(next[1].message).toBe(first[1].message);
+  const changed = groupChatMessages([{ ...source, parts: [...source.parts, { type: "text", text: "new" }] }]);
+  if (changed[1]?.kind !== "message") throw new Error("Missing changed slice");
+  expect(changed[1].message).not.toBe(first[1].message);
+  expect(changed[1].message.parts).toHaveLength(2);
 });
