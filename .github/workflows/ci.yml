@@ -80,6 +80,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install ripgrep
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep
+          rg --version
+
       - name: Test shared and native contracts (Linux)
         if: runner.os == 'Linux'
         run: npm test
