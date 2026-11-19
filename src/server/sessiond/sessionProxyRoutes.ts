@@ -126,6 +126,7 @@ export function registerSessionProxyRoutes(
       cancellation.dispose();
     }
   };
+  app.post(`${prefix}/sessions/search`, (request, reply) => cancellableProxy(request, reply, requestCancellation(request, reply)));
   app.get(`${prefix}/plugin-catalog/*`, (request, reply) => cancellableProxy(request, reply, requestCancellation(request, reply)));
   app.all(`${prefix}/plugin-sessions/*`, (request, reply) => cancellableProxy(request, reply, requestCancellation(request, reply)));
 

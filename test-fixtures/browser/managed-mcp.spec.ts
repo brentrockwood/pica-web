@@ -47,7 +47,8 @@ test("all scope controls remain reachable in desktop columns and a narrow scroll
   await keepEditing.click();
   await expect(project).toBeChecked();
   const refresh = page.getByRole("button", { name: "Refresh", exact: true });
-  await refresh.click();
+  await refresh.focus();
+  await refresh.press("Enter");
   await expect(keepEditing).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();

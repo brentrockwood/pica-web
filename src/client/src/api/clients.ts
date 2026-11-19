@@ -1,3 +1,4 @@
+import { parseSessionSearchResponse } from "../../../shared/sessionSearch";
 import { parseSessionDefaults } from "../../../shared/sessionDefaults";
 import type { SessionDefaultsUpdate } from "../../../shared/apiTypes";
 import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionModelScopeMode, SessionNotificationDismissThrough, SessionQueueMessageMutation, SessionRef, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, WorkspaceRemovalRequest, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
@@ -234,6 +235,7 @@ export const workspacesApi = {
 };
 
 export const sessionsApi = {
+  search: (query: string, machineId = "local", signal?: AbortSignal) => request(`${machinePrefix(machineId)}/sessions/search`, parseSessionSearchResponse, { method: "POST", body: JSON.stringify({ query }), ...(signal === undefined ? {} : { signal }), timeoutMs: 15_000 }),
   sessions: (cwd: string, machineId = "local", options?: { signal?: AbortSignal }) => request(
     `${machinePrefix(machineId)}/sessions?cwd=${encodeURIComponent(cwd)}`,
     arrayOf(parseSessionInfo),

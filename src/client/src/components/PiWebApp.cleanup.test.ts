@@ -64,7 +64,7 @@ it("keeps execution errors and cleanup action metadata live", async () => {
   const error = cleanupError(app);
   const method: unknown = Reflect.get(app, "sessionActions");
   if (!isActions(method)) throw new Error("Missing session actions");
-  const action = method.call(app)[0];
+  const action = method.call(app).find((candidate) => candidate.id === "app.sessions.cleanup");
   for (const language of ["en-XA", "ar-XB", "en"]) {
     await localization.setPreferences({ language, formatLocale: "en" });
     expect(error()).toBe(messages.t("runFailed", { error: "Execution diagnostic" }));

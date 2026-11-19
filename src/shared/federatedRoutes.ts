@@ -138,6 +138,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "POST", path: "/notices/dismiss" },
   { method: "GET", path: "/sessions" },
   { method: "POST", path: "/sessions" },
+  { method: "POST", path: "/sessions/search", propagateCancellation: true },
   { method: "GET", path: "/sessions/unread" },
   { method: "GET", path: "/sessions/notifications" },
   { method: "POST", path: "/sessions/cleanup/preview" },

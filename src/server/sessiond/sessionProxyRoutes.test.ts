@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerSessionProxyRoutes } from "./sessionProxyRoutes";
+import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessionProxyRoutes";
 import { PI_WEB_CAPABILITIES } from "../../shared/capabilities.js";
 
 let app: FastifyInstance;
@@ -123,6 +123,39 @@ describe("daemon-owned session pin proxy", () => {
     expect(response.statusCode).toBe(409);
     expect(response.json()).toEqual({ ids: ["current"], revision: 3 });
     expect(daemon.requests.at(-1)).toEqual({ method: "PUT", path, body: { ids: [], revision: 1 } });
+  });
+});
+
+describe.each(["/api", "/api/machines/local"])("session search proxy at %s", (prefix) => {
+  it("forwards search body, response and cancellation signal", async () => {
+    const request = vi.spyOn(daemon, "request");
+    const result = { results: [], truncated: false };
+    daemon.respondWith({ statusCode: 200, headers: {}, body: JSON.stringify(result) });
+    const response = await app.inject({ method: "POST", url: `${prefix}/sessions/search`, payload: { query: "literal.*" } });
+    expect(response.json()).toEqual(result);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    const signal: unknown = expect.any(AbortSignal);
+    expect(request).toHaveBeenCalledWith("POST", "/sessions/search", { query: "literal.*" }, { signal });
+  });
+
+  it("aborts the daemon request when the browser disconnects", async () => {
+    let disconnect: (() => void) | undefined;
+    app.addHook("onRequest", (_request, reply, done) => {
+      disconnect = () => { reply.raw.emit("close"); };
+      done();
+    });
+    const proxyDaemon: SessionProxyDaemon = daemon;
+    let signal: AbortSignal | undefined;
+    vi.spyOn(proxyDaemon, "request").mockImplementation((_method, _path, _body, options) => {
+      signal = options?.signal;
+      return new Promise((_resolve, reject) => { signal?.addEventListener("abort", () => { reject(new Error("Cancelled")); }, { once: true }); });
+    });
+    const pending = app.inject({ method: "POST", url: `${prefix}/sessions/search`, payload: { query: "text" } }).then((response) => response);
+    await vi.waitFor(() => { expect(signal).toBeDefined(); });
+    const disconnected = expect(pending).rejects.toThrow("response destroyed before completion");
+    disconnect?.();
+    expect(signal?.aborted).toBe(true);
+    await disconnected;
   });
 });
 

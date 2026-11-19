@@ -10,6 +10,8 @@ If you make changes that affect `src/server/sessiond.ts`, session runtime owners
 
 Web/API/UI-only changes generally need only that layer's reload, rebuild, or restart, depending on the actual setup. Use the commands and activation guidance in [development checks](docs/development-checks.md#development-startup); do not restart the session daemon unnecessarily.
 
+For authorized macOS checkout restarts, use the [maintenance restart tool and outcome checks](docs/fork-updates.md#macos-checkout-restart-tool). Do not write another ad hoc service lifecycle helper: `src/nativeServices/serviceAction.ts` already handles asynchronous launchd unload and readiness. A notification is not a substitute for inspecting the saved result and current health.
+
 ## Human-facing communication
 
 Write for humans, not as humans. AI is expected to do the work. Follow `CONTRIBUTING.md` for descriptions, comments, and other human-facing messages: plain, direct, concise, and relevant to the reader's decisions. Do not imitate the maintainer's voice, perform a human persona, or invent experiences or approvals. Keep agent context separate, but surface decisions, risks, and questions that need human attention. Do the investigation rather than assigning avoidable work to the human. For description reviews, report factual findings without suggested wording or fixes, following `docs/github-description-review.md`.

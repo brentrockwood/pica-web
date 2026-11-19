@@ -108,7 +108,7 @@ Prevent development watchers from loading a half-updated checkout or dependencie
 
 Do not casually reinstall services: upstream service-layout changes may alter the service names, bind addresses, ports, retained Pi selection, and config options. Preserve the deployment's settings and review the generated definitions. Only adopt a new layout as an explicit part of activation.
 
-If scheduling a restart from inside PI WEB, report the operation and delay before the detached job runs. On macOS use a launchd-owned handoff; on Linux use a systemd user timer. Do not report completion until an independent check confirms it.
+If scheduling a restart from inside PI WEB, report the operation and delay before the detached job runs. On macOS use the [checkout maintenance tool](#macos-checkout-restart-tool) below; on Linux use a systemd user timer invoking the supported CLI. Do not report completion until an independent check confirms it.
 
 After activation verify:
 
@@ -119,6 +119,58 @@ After activation verify:
 - The UI/runtime reports the expected release and the live checkout has the intended commit.
 
 If activation fails, stop and inspect before retrying. Rolling back source alone may not reverse a data migration. Use the recorded old commit and service definitions, and assess state compatibility before restoring any backup.
+
+### macOS checkout restart tool
+
+Use `scripts/restart-launchd.mjs` for an approved, detached restart of a checkout deployment, including the older separate web/client/sessiond layout. It calls the existing lifecycle code in `src/nativeServices/serviceAction.ts`: **do not replace it with adjacent `launchctl bootout` and `bootstrap` commands.** Bootout returns before unload has necessarily finished; the shared implementation waits for the label to disappear.
+
+The tool requires this checkout's installed dependencies, Node, macOS `launchctl`/`plutil`, curl, and an executable notification command that accepts one message argument. It is a checkout maintenance tool, not an npm-installed command. It does not install or rewrite service definitions.
+
+Keep a JSON plan outside Git, populated from the actual installed definitions. Service IDs are `web`, `uiDev` (including a separate Vite client), and `sessiond`; each may appear once. They restart in that order regardless of plan order. Omit services that do not need restarting. For example:
+
+```json
+{
+  "services": [
+    {
+      "id": "web",
+      "label": "com.pi-web.web",
+      "plist": "/Users/you/Library/LaunchAgents/com.pi-web.web.plist",
+      "health": { "url": "http://127.0.0.1:8506/api/pi-web/health", "host": "your-allowed-host", "jsonOk": true }
+    },
+    {
+      "id": "uiDev",
+      "label": "com.pi-web.client",
+      "plist": "/Users/you/Library/LaunchAgents/com.pi-web.client.plist",
+      "health": { "url": "http://127.0.0.1:8504/", "jsonOk": false }
+    },
+    {
+      "id": "sessiond",
+      "label": "com.pi-web.sessiond",
+      "plist": "/Users/you/Library/LaunchAgents/com.pi-web.sessiond.plist",
+      "health": { "url": "http://localhost/health", "socket": "/Users/you/.pi-web/sessiond.sock", "jsonOk": true }
+    }
+  ],
+  "notify": "/Users/you/bin/notify"
+}
+```
+
+Use the actual bind addresses, ports, Host policy, and socket path; the example is not discovery. `jsonOk: true` requires an HTTP-success JSON response with `ok: true`; `false` checks an HTTP page. The tool checks definition labels, loaded services, current health, and notification executable access before scheduling, then rechecks before any restart. It refuses if a definition's contents changed during the delay. A preflight is not a test notification or a guarantee of delivery.
+
+```sh
+# Read-only: validates the plan and probes current health.
+node --import tsx scripts/restart-launchd.mjs --check /absolute/private/restart-plan.json
+
+# Only after explicit interruption approval and announcing the delay:
+node --import tsx scripts/restart-launchd.mjs --schedule /absolute/private/restart-plan.json 15
+```
+
+The second command dispatches a one-shot launchd-owned worker. `KeepAlive` is false, there is no repeating interval, and the plist is outside `~/Library/LaunchAgents`, so it is not loaded on login. An exclusive execution marker prevents replay. Do not change the checkout or its dependencies while a job is pending. Dispatch failure can be ambiguous: inspect the printed job label and packet before considering another dispatch.
+
+Each job has a private directory under `~/.local/state/pi-web-restarts/`, containing the plan snapshot, timestamped command stdout/stderr in `commands.jsonl`, worker output in `job.log`, and an atomically replaced `result.json`. Treat these files as private: service-manager diagnostics may contain environment values. The tool verifies each service's running state and health before proceeding, so web/UI failure prevents a daemon restart. It makes no automatic recovery attempt after a lifecycle failure.
+
+Always inspect `result.json` and current service health after dispatch, even if no notification arrives. `restart` and `notification` are independent outcomes: `completed` with notification `failed` does not mean services failed. Notification `accepted` means the command returned success, not that a human saw it. A service marked `unresolved`, a failed job, or a stale `running` result needs inspection; do not blindly run the whole restart again. Restore a missing web service before considering any daemon operation, using the shared lifecycle code or the compatible installed CLI.
+
+The finished non-repeating job remains registered for inspection; the scheduling command prints its `launchctl print` and cleanup commands. After checking the result, unload **that job only** with the printed `launchctl bootout` command. Keep the private logs until the outcome is understood. These readiness checks do not replace the feature and proxy checks above.
 
 ## 6. Leave a durable handoff
 

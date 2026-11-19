@@ -3,6 +3,26 @@ import { PiSessionService } from "./piSessionService.js";
 import { CapturingSessionEventHub, emptyArchiveStore, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, testModelRuntime } from "./piSessionService.testSupport.js";
 
 describe("read-only session catalog", () => {
+  it("searches cold and archived backing files without opening runtimes or crossing workspace scope", async () => {
+    const legacy = { ...sessionRecord("legacy"), name: "Legacy name", firstMessage: "Legacy preview" };
+    const gateway = sessionGateway([sessionRecord("cold"), sessionRecord("archived"), legacy]);
+    const open = vi.spyOn(gateway, "open");
+    const archives = [
+      { sessionId: "archived", cwd: "/workspace", archivedAt: "now", archivePath: "/archive/archived.jsonl", originalPath: "/old/archived.jsonl", firstMessage: "Archived title" },
+      { sessionId: "legacy", cwd: "/workspace", archivedAt: "now" },
+      { sessionId: "outside", cwd: "/outside", archivedAt: "now", archivePath: "/archive/outside.jsonl" },
+    ];
+    const service = new PiSessionService(new CapturingSessionEventHub(), { agentDir: "/tmp/pi-web-test-agent", modelRuntime: testModelRuntime, sessionManager: gateway, archiveStore: { ...emptyArchiveStore(), list: () => Promise.resolve(archives) } });
+    try {
+      const found = await service.listSearchSessions("/workspace");
+      expect(found.map((session) => session.id)).toEqual(["cold", "archived", "legacy"]);
+      expect(found[1]).toMatchObject({ path: "/archive/archived.jsonl", firstMessage: "Archived title" });
+      expect(found[2]).toMatchObject({ path: sessionRecord("legacy").path, name: "Legacy name", firstMessage: "Legacy preview" });
+      expect(open).not.toHaveBeenCalled();
+      expect(service.activeCount()).toBe(0);
+    } finally { await service.dispose(); }
+  });
+
   it("lists cold conversations without opening a runtime or leaking transcript/file fields", async () => {
     const gateway = sessionGateway([{ ...sessionRecord("cold"), firstMessage: "private text" }]);
     const open = vi.spyOn(gateway, "open");

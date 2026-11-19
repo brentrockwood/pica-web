@@ -30,6 +30,10 @@ afterEach(() => {
 });
 
 describe("federated route contract", () => {
+  it("propagates remote search cancellation", () => {
+    expect(FEDERATED_HTTP_ROUTES.find((route) => route.path === "/sessions/search")).toEqual({ method: "POST", path: "/sessions/search", propagateCancellation: true });
+  });
+
   it("allowlists notification HTTP routes without adding a notification WebSocket", () => {
     expect(FEDERATED_HTTP_ROUTES.filter((route) => route.path.includes("notifications"))).toEqual([
       { method: "GET", path: "/sessions/notifications" },
@@ -199,6 +203,7 @@ describe("federated route contract", () => {
       ignoreParseFailure(requestPairedPluginBackend({ pluginId: "board-tools", backendRevision: "server-r1", machineId, projectId: "p 1", workspaceId: "w 1" }, "cards.summary", { includeClosed: false })),
       ignoreParseFailure(filesApi.files("README", { kind: "tracked", mode: "file", projectId: "p 1", workspaceId: "w 1", machineId })),
       ignoreParseFailure(sessionsApi.sessions("/repo", machineId)),
+      ignoreParseFailure(sessionsApi.search("literal text", machineId)),
       ignoreParseFailure(sessionsApi.unreadCatalog(machineId)),
       ignoreParseFailure(sessionsApi.markUnread(session, machineId)),
       ignoreParseFailure(sessionsApi.acknowledgeUnread(session, "catalog-a", 7, machineId)),

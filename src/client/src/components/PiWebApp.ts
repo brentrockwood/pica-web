@@ -1,3 +1,6 @@
+import "./SessionSearchDialog";
+import { sessionSearchMessages } from "../sessionSearchMessages";
+import type { SessionSearchResult } from "../../../shared/sessionSearch";
 import { queuedMessageRecallConfirmation, type QueuedMessageActionTarget } from "../queuedMessageActions";
 import { appActionMessages } from "../appActionMessages";
 import { chatActionMessages, HistoryActionError } from "../chatActionMessages";
@@ -186,6 +189,7 @@ export class PiWebApp extends LitElement {
 
   /** Page-scoped injection seam for independently composing chat behavior. */
   @property({ attribute: false }) chatBehaviors: ChatBehaviors = DEFAULT_CHAT_BEHAVIORS;
+  @state() private sessionSearchOpen = false;
   @state() private state: AppState = initialAppState();
   private readonly browserErrors = new BrowserErrorReporter(() => this.state, (patch) => { this.setState(patch); });
   private readonly notificationOccurrenceIds = new WeakMap<object, number>();
@@ -3089,6 +3093,7 @@ export class PiWebApp extends LitElement {
 
   private sessionActions(): AppAction[] {
     return [
+      { id: "app.sessions.find", get title() { return sessionSearchMessages.t("title"); }, run: () => { this.sessionSearchOpen = true; } },
       {
         id: "app.sessions.cleanup",
         get title() { return sessionCleanupMessages.t("actionTitle"); },
@@ -4633,6 +4638,7 @@ export class PiWebApp extends LitElement {
           .onSelect=${this.selectNavigationTab}
           .onClose=${this.closeNavigation}
         ></navigation-dialog>` : null}
+        ${this.sessionSearchOpen ? html`<session-search-dialog .machineId=${selectedMachineId(state)} .machineName=${state.selectedMachine?.name ?? ""} .onClose=${() => { this.sessionSearchOpen = false; }} .onOpen=${(result: SessionSearchResult) => { this.sessionSearchOpen = false; void this.navigate({ machineId: selectedMachineId(state), projectId: result.projectId, workspaceId: result.workspaceId, sessionId: result.sessionId, view: "chat" }); }}></session-search-dialog>` : null}
         ${state.actionPaletteOpen ? html`<action-palette .actions=${this.getActions()} .onRun=${(action: AppAction) => { this.setState({ actionPaletteOpen: false }); this.runAction(action); }} .onCancel=${() => { this.setState({ actionPaletteOpen: false }); }}></action-palette>` : null}
         ${this.renderSessionTreeNavigator(state)}
         ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .onSubmit=${(path: string, create: boolean, trust: ProjectTrustChoice | undefined) => this.projects.addProject(path, create, trust)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}

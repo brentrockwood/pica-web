@@ -1608,6 +1608,22 @@ export class PiSessionService implements SessionRouteService {
     }
   }
 
+  /** Read-only search catalog, including the archive's actual backing files. */
+  async listSearchSessions(cwd: string): Promise<Pick<ClientSession, "id" | "path" | "name" | "firstMessage">[]> {
+    const [sessions, archives] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
+    const archived = archives.filter((record) => cwdPathsEqual(record.cwd, cwd));
+    const archivedIds = new Set(archived.map((record) => record.sessionId));
+    return [
+      ...sessions.filter((session) => !archivedIds.has(session.id)),
+      ...archived.flatMap((record) => {
+        const listed = sessions.find((session) => session.id === record.sessionId);
+        const path = record.archivePath ?? record.originalPath ?? listed?.path;
+        const name = record.name ?? listed?.name;
+        return path === undefined ? [] : [{ id: record.sessionId, path, firstMessage: record.firstMessage ?? listed?.firstMessage ?? "", ...(name === undefined ? {} : { name }) }];
+      }),
+    ];
+  }
+
   async list(cwd: string): Promise<ClientSession[]> {
     const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
