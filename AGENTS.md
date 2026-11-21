@@ -44,6 +44,8 @@ For website design and styling, follow `.interface-design/system.md` and use `do
 
 Read and follow [testing policy](docs/testing.md) whenever adding, changing, planning, reviewing, or reassessing tests, triaging failures, or creating test helpers.
 
+For a focused investigation of uncertain test protection or a proposed consolidation, use `.agents/skills/test-design-review/SKILL.md`. Do not require this review or a separate decision record for routine test changes. Test volume alone is not evidence of excessive testing.
+
 Use [test harnesses](docs/testing-harnesses.md) for implementation mechanics and [development and delivery checks](docs/development-checks.md) for verification commands and scope. Keep policy and detailed conventions in those documents rather than duplicating them here.
 
 The project Pi prompt `/reassess-tests` lives in [`.pi/prompts/reassess-tests.md`](.pi/prompts/reassess-tests.md).

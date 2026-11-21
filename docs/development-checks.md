@@ -70,6 +70,8 @@ The npm command generates the bundled Material icon assets before building fixtu
 
 These tests prove browser painting, hit targeting, anchoring, and focus/dismissal composition; happy-dom tests remain responsible for component event wiring and state. They are a separate CI job, not part of `npm test` or `npm run verify`.
 
+For optional per-test execution indexing and deterministic overlap screening, see [the coverage-analysis tool](test-coverage-tool.md). This is separate from required development checks and does not establish assertion equivalence.
+
 ## Check ownership
 
 | Stage | Required checks | Where they run |

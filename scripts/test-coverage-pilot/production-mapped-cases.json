@@ -1,0 +1,32 @@
+[
+  {
+    "key": "main-valid",
+    "file": "scripts/test-coverage-pilot/fixtures/production-mapped.spec.ts",
+    "title": "production main valid"
+  },
+  {
+    "key": "main-invalid",
+    "file": "scripts/test-coverage-pilot/fixtures/production-mapped.spec.ts",
+    "title": "production main invalid"
+  },
+  {
+    "key": "child-valid",
+    "file": "scripts/test-coverage-pilot/fixtures/production-mapped.spec.ts",
+    "title": "production child valid"
+  },
+  {
+    "key": "child-invalid",
+    "file": "scripts/test-coverage-pilot/fixtures/production-mapped.spec.ts",
+    "title": "production child invalid"
+  },
+  {
+    "key": "worker-valid",
+    "file": "scripts/test-coverage-pilot/fixtures/production-mapped.spec.ts",
+    "title": "production worker valid"
+  },
+  {
+    "key": "worker-invalid",
+    "file": "scripts/test-coverage-pilot/fixtures/production-mapped.spec.ts",
+    "title": "production worker invalid"
+  }
+]

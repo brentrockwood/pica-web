@@ -1,0 +1,527 @@
+[
+  {
+    "key": "study-01-01",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "manual unread creates new durable orders without consuming active work or tracking excluded children"
+  },
+  {
+    "key": "study-01-02",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "marks only known active-to-idle transitions unread"
+  },
+  {
+    "key": "study-01-03",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "uses monotonic completion orders so stale acknowledgements cannot clear newer work"
+  },
+  {
+    "key": "study-01-04",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "rejects stale acknowledgements from a reset catalog epoch"
+  },
+  {
+    "key": "study-01-05",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "scopes lifecycle and acknowledgements to the canonical id and cwd pair"
+  },
+  {
+    "key": "study-01-06",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "forgets a closing runtime's active latch without manufacturing a completion"
+  },
+  {
+    "key": "study-01-07",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "excludes verified tracked sub-sessions and clears accidental lifecycle state"
+  },
+  {
+    "key": "study-01-08",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "removes durable and transient state when a cwd is reconciled"
+  },
+  {
+    "key": "study-01-09",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "retains canonical exact workspace members without rewriting identities"
+  },
+  {
+    "key": "study-01-10",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "clears orphan active latches without maintaining permanent workspace eligibility"
+  },
+  {
+    "key": "study-01-11",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "keeps sub-session exclusions independent of workspace removal and readdition"
+  },
+  {
+    "key": "study-01-12",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "persists orphan tombstones after reload while retaining valid workspaces and completion order"
+  },
+  {
+    "key": "study-01-13",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "requires loading and validates all workspace inputs before changing state"
+  },
+  {
+    "key": "study-01-14",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "bounds the catalog and emits an authoritative removal when pruning"
+  },
+  {
+    "key": "study-01-15",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "persists the catalog epoch, revisions, and completion order across store instances"
+  },
+  {
+    "key": "study-01-16",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "repairs malformed persistence with a fresh epoch and keeps stale old-epoch acks harmless"
+  },
+  {
+    "key": "study-01-17",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "resets persisted protocol fields that exceed shared bounds and rejects oversized runtime identities"
+  },
+  {
+    "key": "study-01-18",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "rejects an oversized persisted catalog instead of loading unbounded state"
+  },
+  {
+    "key": "study-01-19",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "serializes writes and captures each mutation's state"
+  },
+  {
+    "key": "study-01-20",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "coalesces a mutation burst behind one in-flight persistence write"
+  },
+  {
+    "key": "study-01-21",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "holds one latest snapshot without retrying every mutation during a storage outage"
+  },
+  {
+    "key": "study-01-22",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "retries the latest snapshot before exposing state after a transient save failure"
+  },
+  {
+    "key": "study-01-23",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "rejects operational load failures without overwriting the unread file"
+  },
+  {
+    "key": "study-01-24",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "rejects startup when a missing or corrupt catalog cannot persist its fresh epoch"
+  },
+  {
+    "key": "study-01-25",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "repairs malformed JSON with a fresh persisted catalog epoch"
+  },
+  {
+    "key": "study-01-26",
+    "file": "src/server/sessions/sessionUnreadStore.test.ts",
+    "title": "uses PI_WEB_DATA_DIR and atomically reloads a private state file"
+  },
+  {
+    "key": "study-02-01",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "keeps duplicate calls distinct, newest-first, and recomputes severity"
+  },
+  {
+    "key": "study-02-02",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "truncates UTF-8 only between code points and marks exact overflow"
+  },
+  {
+    "key": "study-02-03",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "retains exactly the newest 100 and reports exact overflow"
+  },
+  {
+    "key": "study-02-04",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "makes individual dismissal idempotent and clears overflow with the final retained entry"
+  },
+  {
+    "key": "study-02-05",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "dismisses only through captured order and overflow cutoffs"
+  },
+  {
+    "key": "study-02-06",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "requests resync when dismissal reveals an entry hidden by the replacement projection cap"
+  },
+  {
+    "key": "study-02-07",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "keeps dismiss-all deltas bounded to the public 100-entry projection"
+  },
+  {
+    "key": "study-02-08",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "treats stale daemon and unknown notification identifiers as no-ops"
+  },
+  {
+    "key": "study-02-09",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "advances catalog and inbox revisions only for visible mutations and emits zero cleanup"
+  },
+  {
+    "key": "study-02-10",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "keeps inbox revisions and overflow watermarks monotonic across same-daemon reopen"
+  },
+  {
+    "key": "study-02-11",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "commits replacement notifications while dropping the old generation and overflow"
+  },
+  {
+    "key": "study-02-12",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "aborts replacement without cleanup and keeps the 100-entry bound"
+  },
+  {
+    "key": "study-02-13",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "can keep a rotated candidate binding active after aborting cleanup"
+  },
+  {
+    "key": "study-02-14",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "moves preserved calls to the active changed-id candidate after aborting cleanup"
+  },
+  {
+    "key": "study-02-15",
+    "file": "src/server/sessions/sessionNotificationStore.test.ts",
+    "title": "retags a failed changed-id replacement back to the prior inbox"
+  },
+  {
+    "key": "study-03-01",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "marks unread and replays a newer clear arriving before the response"
+  },
+  {
+    "key": "study-03-02",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "surfaces failed manual unread writes without changing the projection"
+  },
+  {
+    "key": "study-03-03",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "acknowledges only the exact rendered epoch, order, and session identity"
+  },
+  {
+    "key": "study-03-04",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "does not capture or acknowledge rendered boundaries from a stale projection"
+  },
+  {
+    "key": "study-03-05",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "restores the durable server snapshot for a new browser controller"
+  },
+  {
+    "key": "study-03-06",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "refreshes the projection again on reconnect"
+  },
+  {
+    "key": "study-03-07",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "replays a contiguous event that races the initial snapshot join and performs a trailing refresh"
+  },
+  {
+    "key": "study-03-08",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "drains reconnect refreshes that overlap an active request"
+  },
+  {
+    "key": "study-03-09",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "retries a queued gap refresh after the active snapshot request fails"
+  },
+  {
+    "key": "study-03-10",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "resnapshots revision gaps and replaces state on a new catalog epoch"
+  },
+  {
+    "key": "study-03-11",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "keeps a newer completion when an acknowledgement of the observed order is in flight"
+  },
+  {
+    "key": "study-03-12",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "does not let a delayed acknowledgement response regress an epoch installed by another request"
+  },
+  {
+    "key": "study-03-13",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "deduplicates acknowledgements and converges another client from the authoritative clear event"
+  },
+  {
+    "key": "study-03-14",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "keeps canonical identities machine- and cwd-scoped and prunes removed machines"
+  },
+  {
+    "key": "study-03-15",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "invalidates an in-flight snapshot when its machine is removed"
+  },
+  {
+    "key": "study-03-16",
+    "file": "src/client/src/sessionUnread.test.ts",
+    "title": "preserves unread state when acknowledgement fails so a later visible check can retry"
+  },
+  {
+    "key": "study-04-01",
+    "file": "src/client/src/sessionNotifications.test.ts",
+    "title": "joins a snapshot with newer buffered events without duplicate cards or replay announcements"
+  },
+  {
+    "key": "study-04-02",
+    "file": "src/client/src/sessionNotifications.test.ts",
+    "title": "marks gaps and resync deltas stale and clears old-daemon contents"
+  },
+  {
+    "key": "study-04-03",
+    "file": "src/client/src/sessionNotifications.test.ts",
+    "title": "drops old-daemon optimistic cutoffs and announcements when a restart snapshot arrives"
+  },
+  {
+    "key": "study-04-04",
+    "file": "src/client/src/sessionNotifications.test.ts",
+    "title": "applies optimistic individual and cutoff dismissals while preserving newer arrivals"
+  },
+  {
+    "key": "study-04-05",
+    "file": "src/client/src/sessionNotifications.test.ts",
+    "title": "derives compact tray copy and a count that includes older unseen notifications"
+  },
+  {
+    "key": "study-04-06",
+    "file": "src/client/src/sessionNotifications.test.ts",
+    "title": "keeps live announcements concise and dismiss labels meaningful"
+  },
+  {
+    "key": "study-05-01",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "imports every pin scope, preserving order, revisions and cleared tombstones without modifying legacy state"
+  },
+  {
+    "key": "study-05-02",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "persists an empty import so later legacy writes cannot be reimported"
+  },
+  {
+    "key": "study-05-03",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "fails closed on corrupt legacy or authoritative state and allows retry after repair"
+  },
+  {
+    "key": "study-05-04",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "serializes atomic pin changes with revisioned replacements and isolates opaque scope IDs"
+  },
+  {
+    "key": "study-05-05",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "publishes scoped invalidation only after committed writes, not import, no-op or failed CAS"
+  },
+  {
+    "key": "study-05-06",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "keeps native navigation GET/PUT revisions and conflict responses compatible"
+  },
+  {
+    "key": "study-06-01",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "uses managed data rather than user configuration"
+  },
+  {
+    "key": "study-06-02",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "persists full replacement order and clearing across new store instances"
+  },
+  {
+    "key": "study-06-03",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "serializes concurrent writes without losing independent scopes"
+  },
+  {
+    "key": "study-06-04",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects concurrent stale writes and preserves revisions after clearing"
+  },
+  {
+    "key": "study-06-05",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects invalid preferences null"
+  },
+  {
+    "key": "study-06-06",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects invalid preferences {}"
+  },
+  {
+    "key": "study-06-07",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects invalid preferences {\"ids\":\"a\"}"
+  },
+  {
+    "key": "study-06-08",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects invalid preferences {\"ids\":[1]}"
+  },
+  {
+    "key": "study-06-09",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects invalid preferences {\"ids\":[\"\"]}"
+  },
+  {
+    "key": "study-06-10",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects invalid preferences {\"ids\":[\"  \"]}"
+  },
+  {
+    "key": "study-06-11",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "rejects invalid preferences {\"ids\":[\"a\",\"a\"]}"
+  },
+  {
+    "key": "study-06-12",
+    "file": "src/server/storage/navigationPreferenceStore.test.ts",
+    "title": "does not overwrite corrupt state and can retry after a failure"
+  },
+  {
+    "key": "study-07-01",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "includes an initially selected archive in the first commit and reveals it afterwards"
+  },
+  {
+    "key": "study-07-02",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "reveals a different-id current-to-archive transition in its first commit"
+  },
+  {
+    "key": "study-07-03",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "reveals a same-id current-to-archive transition in its first commit"
+  },
+  {
+    "key": "study-07-04",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "does not force a same-id archive reveal when the archive section is already expanded"
+  },
+  {
+    "key": "study-07-05",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "respects manual archive collapse across same-id object and array refresh"
+  },
+  {
+    "key": "study-07-06",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "restores the last archive and resets expansion without a follow-up commit"
+  },
+  {
+    "key": "study-07-07",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "defers archived scrolling while the outer list is collapsed until expansion commits"
+  },
+  {
+    "key": "study-07-08",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "reveals nested agent ancestors before committing (archived=false, initial=true)"
+  },
+  {
+    "key": "study-07-09",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "reveals nested agent ancestors before committing (archived=false, initial=false)"
+  },
+  {
+    "key": "study-07-10",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "reveals nested agent ancestors before committing (archived=true, initial=true)"
+  },
+  {
+    "key": "study-07-11",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "reveals nested agent ancestors before committing (archived=true, initial=false)"
+  },
+  {
+    "key": "study-07-12",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "removes a deleted session's menu before committing the refreshed list"
+  },
+  {
+    "key": "study-07-13",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "prunes bulk selection before committing and leaves returning sessions unselected"
+  },
+  {
+    "key": "study-07-14",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "collapses with no correction render and does not reopen a menu (open=false)"
+  },
+  {
+    "key": "study-07-15",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "collapses with no correction render and does not reopen a menu (open=true)"
+  },
+  {
+    "key": "study-08-01",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "matches only literal user/assistant text, not tools, thinking, metadata or custom messages"
+  },
+  {
+    "key": "study-08-02",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "runs real rg safely on catalog files and verifies decoded escaped text, with one result per session"
+  },
+  {
+    "key": "study-08-03",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "marks the result cap as incomplete and respects cancellation"
+  },
+  {
+    "key": "study-08-04",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "keeps Unicode lowercasing expansions in the candidate set"
+  },
+  {
+    "key": "study-08-05",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "reports missing rg and filesystem errors rather than empty success"
+  },
+  {
+    "key": "study-08-06",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "streams past oversized entries and marks skipped content incomplete"
+  },
+  {
+    "key": "study-09-01",
+    "file": "src/server/sessiond/sessionSearchRoutes.test.ts",
+    "title": "rejects invalid input before catalog access and searches only discovered workspace paths"
+  },
+  {
+    "key": "study-09-02",
+    "file": "src/server/sessiond/sessionSearchRoutes.test.ts",
+    "title": "bounds stalled discovery and prevents subsequent catalog work after the deadline"
+  },
+  {
+    "key": "study-10-01",
+    "file": "src/client/src/components/SessionSearchDialog.test.ts",
+    "title": "submits only explicitly, uses selected machine, opens results and rejects stale responses"
+  }
+]
