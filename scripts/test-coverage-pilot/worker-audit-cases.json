@@ -1,0 +1,86 @@
+[
+  {
+    "key": "child",
+    "file": "scripts/test-coverage-pilot/fixtures/boundaries.spec.ts",
+    "title": "verifies a child process without observing its coverage",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "thread",
+    "file": "scripts/test-coverage-pilot/fixtures/boundaries.spec.ts",
+    "title": "verifies a worker thread without observing its coverage",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "main-shared",
+    "file": "scripts/test-coverage-pilot/fixtures/completeness.spec.ts",
+    "title": "calls the shared function in the main test worker",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "suppressed-child",
+    "file": "scripts/test-coverage-pilot/fixtures/completeness.spec.ts",
+    "title": "detects a child that suppresses all collection hooks",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "incomplete"
+  },
+  {
+    "key": "killed-child",
+    "file": "scripts/test-coverage-pilot/fixtures/completeness.spec.ts",
+    "title": "detects a child killed before coverage flush",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "incomplete"
+  },
+  {
+    "key": "suppressed-worker",
+    "file": "scripts/test-coverage-pilot/fixtures/worker-audit.spec.ts",
+    "title": "discovers a worker that suppresses its own hooks",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "incomplete"
+  },
+  {
+    "key": "terminated-worker",
+    "file": "scripts/test-coverage-pilot/fixtures/worker-audit.spec.ts",
+    "title": "records worker termination after a successful message",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "incomplete"
+  },
+  {
+    "key": "nested-worker",
+    "file": "scripts/test-coverage-pilot/fixtures/worker-audit.spec.ts",
+    "title": "tracks a worker created inside another worker",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "rejected-worker",
+    "file": "scripts/test-coverage-pilot/fixtures/worker-audit.spec.ts",
+    "title": "does not invent a worker when construction is rejected",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "removed-worker-audit",
+    "file": "scripts/test-coverage-pilot/fixtures/worker-audit.spec.ts",
+    "title": "detects removal of the parent worker audit",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "incomplete"
+  },
+  {
+    "key": "real-lifecycle",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "collapses with no correction render and does not reopen a menu (open=true)",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "real-catalog",
+    "file": "src/server/sessions/piSessionService.modelCatalog.test.ts",
+    "title": "serializes concurrent per-model edits so neither update is lost",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  }
+]

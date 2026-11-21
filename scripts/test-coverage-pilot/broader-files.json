@@ -1,0 +1,23 @@
+[
+  "src/server/sessions/sessionSearch.test.ts",
+  "src/server/sessiond/sessionSearchRoutes.test.ts",
+  "src/client/src/components/SessionSearchDialog.test.ts",
+  "src/server/sessions/piSessionService.agentControl.test.ts",
+  "src/server/sessions/piSessionService.streamingStatus.test.ts",
+  "src/server/sessions/piSessionService.spawnSession.test.ts",
+  "src/server/sessions/sessionUnreadStore.test.ts",
+  "src/server/sessions/sessionNotificationStore.test.ts",
+  "src/server/storage/sessionPinStore.test.ts",
+  "src/server/plugins/serverPluginExec.test.ts",
+  "src/server/sessions/piSessionService.modelCatalog.test.ts",
+  "src/server/sessiond/sessionDaemonShutdown.test.ts",
+  "src/server/sessiond/sessiondStateOwnership.test.ts",
+  "src/client/src/components/ModalSurface.test.ts",
+  "src/client/src/components/SessionList.lifecycle.test.ts",
+  "src/client/src/controllers/sessionController.networkRecovery.test.ts",
+  "src/client/src/controllers/sessionController.sendQueue.test.ts",
+  "src/server/workspaces/projectPiWebConfig.test.ts",
+  "src/server/workspaces/filePreviewService.test.ts",
+  "src/server/workingDirectory.test.ts",
+  "src/server/sessions/builtinExtensionFactories.test.ts"
+]

@@ -1,0 +1,58 @@
+[
+  {
+    "key": "main-left",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps main left",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "child-left",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps child left",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "worker-left",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps worker left",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "native-only-left",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps native-only left",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "main-right",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps main right",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "child-right",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps child right",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "worker-right",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps worker right",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "native-only-right",
+    "file": "scripts/test-coverage-pilot/fixtures/mapped.spec.ts",
+    "title": "maps native-only right",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  }
+]

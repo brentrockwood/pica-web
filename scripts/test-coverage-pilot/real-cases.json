@@ -1,0 +1,82 @@
+[
+  {
+    "key": "real-1-1",
+    "file": "src/shared/themePreference.test.ts",
+    "title": "accepts qualified builtin and plugin themes without requiring them to be installed"
+  },
+  {
+    "key": "real-2-1",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "matches only literal user/assistant text, not tools, thinking, metadata or custom messages"
+  },
+  {
+    "key": "real-2-2",
+    "file": "src/server/sessions/sessionSearch.test.ts",
+    "title": "runs real rg safely on catalog files and verifies decoded escaped text, with one result per session"
+  },
+  {
+    "key": "real-3-1",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "imports every pin scope, preserving order, revisions and cleared tombstones without modifying legacy state"
+  },
+  {
+    "key": "real-3-2",
+    "file": "src/server/storage/sessionPinStore.test.ts",
+    "title": "persists an empty import so later legacy writes cannot be reimported"
+  },
+  {
+    "key": "real-4-1",
+    "file": "src/server/workspaces/projectPiWebConfig.test.ts",
+    "title": "returns an empty config when the project-local config is absent"
+  },
+  {
+    "key": "real-4-2",
+    "file": "src/server/workspaces/projectPiWebConfig.test.ts",
+    "title": "rejects an already-cancelled load even when the config is absent"
+  },
+  {
+    "key": "real-5-1",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "includes an initially selected archive in the first commit and reveals it afterwards"
+  },
+  {
+    "key": "real-5-2",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "does not force a same-id archive reveal when the archive section is already expanded"
+  },
+  {
+    "key": "real-6-1",
+    "file": "src/server/sessions/piSessionService.modelCatalog.test.ts",
+    "title": "persists each pin globally, preserves external edits, and leaves current session state unchanged"
+  },
+  {
+    "key": "real-6-2",
+    "file": "src/server/sessions/piSessionService.modelCatalog.test.ts",
+    "title": "rejects disabled/unavailable models and malformed settings without overwriting them"
+  },
+  {
+    "key": "theme-invalid-0",
+    "file": "src/shared/themePreference.test.ts",
+    "title": "rejects invalid preferences: null"
+  },
+  {
+    "key": "theme-invalid-1",
+    "file": "src/shared/themePreference.test.ts",
+    "title": "rejects invalid preferences: undefined"
+  },
+  {
+    "key": "theme-invalid-2",
+    "file": "src/shared/themePreference.test.ts",
+    "title": "rejects invalid preferences: \"dark\""
+  },
+  {
+    "key": "real-lifecycle",
+    "file": "src/client/src/components/SessionList.lifecycle.test.ts",
+    "title": "collapses with no correction render and does not reopen a menu (open=true)"
+  },
+  {
+    "key": "real-catalog",
+    "file": "src/server/sessions/piSessionService.modelCatalog.test.ts",
+    "title": "serializes concurrent per-model edits so neither update is lost"
+  }
+]

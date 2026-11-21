@@ -1,6 +1,6 @@
 # Coverage-first analysis of test redundancy
 
-Status: brainstorming preserved for continuation, 2026-11-19. No redundancy audit, coverage collector, product trial, or test deletion has been performed. The user requested this plan be saved; implementation and tool selection remain undecided.
+Status: a [usable bounded developer CLI](../test-coverage-tool.md) now collects fresh per-test executions, validates supported main/descendant coverage, and produces deterministic overlap/containment candidates. The [completion report](test-coverage-tool-completion.md) records the real-test sample, production-module mapping regression and controls. Logical assertion review, fault injection, recommendations and test deletion have not been performed. The [mapped-descendant](test-redundancy-mapped-descendants.md), [worker-audit](test-redundancy-worker-audit.md), [unified-index](test-redundancy-unified-index.md), [isolated-collection](test-redundancy-isolated-collection.md), [broader-validation](test-redundancy-broader-validation.md) and [initial-pilot](test-redundancy-step-1.md) reports preserve the earlier experiments.
 
 ## Goal and original idea
 
@@ -59,9 +59,9 @@ A broad integration test does not automatically make a focused unit test expenda
 
 ### 1. Establish trustworthy per-test evidence
 
-**Intended collection host: AI1.** Brent selected it for this step because it has the strongest CPU, most cores, and most memory among the available machines. Its operating system, installed tools, available capacity, and access have not been inspected for this task. This is a placement decision, not a request to start collection or install dependencies yet.
+**Collection host: AI1.** Brent selected it for its CPU, core count, and memory, then authorized cloning the repository and executing step 1. The initial session-search pilot is complete; environment inspection and results are recorded in the companion report.
 
-The current hypothesis is that collection will be constrained more by CPU, memory, and attribution-related limits on concurrency than by disk throughput. This has not been measured. On AI1, compare a representative subset with and without per-test collection, recording wall time, CPU time, peak memory, and disk I/O; repeat warm and vary worker count. Prefer local working files rather than adding network-filesystem latency. Use isolated test state, not a live PI WEB instance's state. Pin the source revision and record runtime/OS/collector versions with results. AI1 evidence does not replace coverage of platform-specific behavior on other machines.
+The initial hypothesis was that CPU, memory, and attribution-related limits on concurrency would matter more than disk throughput. The pilot supports collection overhead rather than disk-read throughput as the main added cost, but does not establish the full-suite bottleneck. For broader samples, compare baseline and per-test collection, recording wall time, CPU time, peak memory, and disk I/O; repeat warm and vary worker count. Prefer local working files and isolated test state, not a live PI WEB instance's state. Pin the source revision and record runtime/OS/collector versions with results. AI1 evidence does not replace coverage of platform-specific behavior on other machines.
 
 Prefer an existing collector or integration over new instrumentation. Ordinary aggregate coverage is insufficient: the required relation is **individual test identity ↔ executed production locations**.
 
@@ -112,14 +112,17 @@ Fault-injection results are corroboration, not a universal proof that removal is
 
 ### 5. Propose changes separately from analysis
 
-Start with one coherent subsystem. Session search was suggested as a small pilot; session lifecycle as a larger, more revealing alternative. Neither has been selected.
+Start with one coherent subsystem. Session search was used for the initial collection pilot; session lifecycle remains a larger, more revealing candidate for expansion.
 
 The initial deliverable is a report, not code deletion. Judge the pilot by whether the candidate groups are stable, the recommendations are understandable, and the evidence materially reduces review effort. If it works, expand to other subsystems. Any subsequent deletion/refactoring batch should retain the selected behavioral protection and run the appropriate checks.
 
 ## Decisions still open
 
-- Pilot subsystem and budget.
-- Collector: existing product, Stryker data, or minimal custom integration.
+- Scope beyond the completed 295-test, 21-file broader sample.
+- Distinguishing orderly nonzero worker exits from forced stops; current collection conservatively excludes both.
+- Applying the validated single-source TypeScript mapping contract to real modules; additional compiler/loader paths and other runtimes remain unsupported.
+- Lifecycle completion, coverage completeness, and stronger isolation where process boundaries are insufficient.
+- Representation optimization only after accurate attribution is established.
 - Coverage granularity and treatment of setup/teardown/concurrency.
 - Candidate ranking and reporting format.
 - Whether and when to add mutation evidence.
@@ -166,8 +169,12 @@ The 2018 paper *Fine-Grained Test Minimization* describes Testler, a Java-orient
 
 No turnkey Vitest product combining individual-test coverage, subset analysis, assertion-aware review, and evidence-backed retirement recommendations was verified in this pass. That is a research limit, not a claim that none exists.
 
+## Future idea: advise before an agent writes a test
+
+Brent's longer-term idea is a reusable tool that helps an agent decide whether to **reuse, extend, or add** a test before writing one. Accurate test-to-code attribution would retrieve existing protection; assertion/precondition analysis would distinguish execution overlap from behavior already verified. A new regression that fails before a fix remains strong evidence of missing protection. Keep this direction in mind, but do not build the recommendation system yet.
+
 ## Continuation guidance
 
-Resume by reviewing this plan with Brent and investigating existing collectors before implementing anything. A useful next bounded investigation is whether Stryker exposes suitable per-test data, alongside whether Teamscale can operate at individual Vitest-case granularity.
+The tool, real-module validation, adversarial fixes and independent re-review are complete; start from the operating guide and completion report. Preserve this reviewed checkpoint, then run a bounded study of roughly 100–200 related real tests with repeated isolated executions. Keep exclusions and unstable observations visible. Inspect the strongest coverage candidates against actual assertions, inputs, preconditions and test-layer responsibilities. Separate shared execution with distinct protection from plausible consolidation; identify targeted fault checks when evidence is insufficient. Do not infer safe deletion from equal or contained line sets. Native JSON loads, ambiguous native class ranges, unsupported loaders and other documented exclusions remain conservative boundaries.
 
-This document does not authorize dependency installation, commercial trials, test removal, publication, deployment, or a service restart. The user explicitly asked not to deploy while an active session is running. No restart is needed for planning or read-only research.
+Brent authorized the experiments, usable-tool implementation, adversarial review and fixes, and now committing/pushing the reviewed checkpoint followed by the bounded assertion-aware study. The future recommendation-tool idea remains a note, not authorized implementation. Test removal, commercial trials, deployment and service restarts remain outside authorization. Raw experiment artifacts are not to be published.

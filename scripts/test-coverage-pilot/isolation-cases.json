@@ -1,0 +1,14 @@
+[
+  {"key":"left","file":"scripts/test-coverage-pilot/fixtures/control.spec.ts","title":"chooses left"},
+  {"key":"right","file":"scripts/test-coverage-pilot/fixtures/control.spec.ts","title":"chooses right"},
+  {"key":"background-owner","file":"scripts/test-coverage-pilot/fixtures/boundaries.spec.ts","title":"A schedules background work without waiting"},
+  {"key":"background-observer","file":"scripts/test-coverage-pilot/fixtures/boundaries.spec.ts","title":"B waits for work started by A"},
+  {"key":"cache-first","file":"scripts/test-coverage-pilot/fixtures/boundaries.spec.ts","title":"first cache consumer"},
+  {"key":"cache-second","file":"scripts/test-coverage-pilot/fixtures/boundaries.spec.ts","title":"second cache consumer"},
+  {"key":"reload","file":"scripts/test-coverage-pilot/fixtures/boundaries.spec.ts","title":"executes a reloaded module"},
+  {"key":"child","file":"scripts/test-coverage-pilot/fixtures/boundaries.spec.ts","title":"verifies a child process without observing its coverage"},
+  {"key":"thread","file":"scripts/test-coverage-pilot/fixtures/boundaries.spec.ts","title":"verifies a worker thread without observing its coverage"},
+  {"key":"lazy","file":"scripts/test-coverage-pilot/fixtures/lazy.spec.ts","title":"allows the first instrumented import inside the test body"},
+  {"key":"real-lifecycle","file":"src/client/src/components/SessionList.lifecycle.test.ts","title":"collapses with no correction render and does not reopen a menu (open=true)"},
+  {"key":"real-catalog","file":"src/server/sessions/piSessionService.modelCatalog.test.ts","title":"serializes concurrent per-model edits so neither update is lost"}
+]

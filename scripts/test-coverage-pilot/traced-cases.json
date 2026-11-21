@@ -1,0 +1,37 @@
+[
+  {
+    "key": "child",
+    "file": "scripts/test-coverage-pilot/fixtures/boundaries.spec.ts",
+    "title": "verifies a child process without observing its coverage",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "thread",
+    "file": "scripts/test-coverage-pilot/fixtures/boundaries.spec.ts",
+    "title": "verifies a worker thread without observing its coverage",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "main-shared",
+    "file": "scripts/test-coverage-pilot/fixtures/completeness.spec.ts",
+    "title": "calls the shared function in the main test worker",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "scope-complete"
+  },
+  {
+    "key": "suppressed-child",
+    "file": "scripts/test-coverage-pilot/fixtures/completeness.spec.ts",
+    "title": "detects a child that suppresses all collection hooks",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "incomplete"
+  },
+  {
+    "key": "killed-child",
+    "file": "scripts/test-coverage-pilot/fixtures/completeness.spec.ts",
+    "title": "detects a child killed before coverage flush",
+    "expectedNativeSources": [],
+    "expectedCompleteness": "incomplete"
+  }
+]

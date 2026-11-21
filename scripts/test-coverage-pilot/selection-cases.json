@@ -1,0 +1,47 @@
+[
+  {
+    "key": "unique",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "unique selected title"
+  },
+  {
+    "key": "duplicate",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "duplicate leaf"
+  },
+  {
+    "key": "zero",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "not a test"
+  },
+  {
+    "key": "static-skip",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "static skip"
+  },
+  {
+    "key": "runtime-skip",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "runtime skip"
+  },
+  {
+    "key": "failed",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "failing case"
+  },
+  {
+    "key": "retry",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "retry case"
+  },
+  {
+    "key": "repeat",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "repeat case"
+  },
+  {
+    "key": "concurrent",
+    "file": "scripts/test-coverage-pilot/fixtures/selection.spec.ts",
+    "title": "concurrent case"
+  }
+]
