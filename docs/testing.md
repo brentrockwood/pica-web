@@ -17,6 +17,14 @@ Test PI WEB's decisions and contracts. Trust frameworks, browsers, and dependenc
 - Assertions that only exercise their own fixtures, mocks, or a helper that mirrors rather than drives production behavior.
 - Regressions for removed features or unreachable paths, and tests added only to increase coverage numbers.
 
+## Assess protection, not volume
+
+Inspect relevant existing tests before adding new ones. Reuse, extend, or add according to the changed behavior and useful test boundary. Read assertions, inputs, and state transitions; test names and counts do not establish protection. A larger suite is not inherently worse, and a smaller suite is not inherently better. Do not target a test count or require each new test to increase coverage.
+
+Use coverage to locate possible execution gaps and related tests, not to establish assertion quality or safe deletion. Equal or contained coverage can hide distinct fault detection. For regressions, demonstrate failure against broken production code and success against the fix when practical; confirm the failure is the intended assertion rather than setup or infrastructure. Detecting that bug does not establish complete protection of the contract.
+
+Use the [focused test-design review](../.agents/skills/test-design-review/SKILL.md) when a specific protection or consolidation question needs investigation. Routine changes require no additional review ceremony or decision record. Required verification remains unchanged.
+
 ## Choose the smallest useful boundary
 
 Before adding or retaining a test, answer:
