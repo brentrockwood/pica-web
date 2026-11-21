@@ -34,7 +34,10 @@ export function nativeStatementLines(text, functions, statements, sourceMap) {
       }
     }
   }
-  const ranges = functions.flatMap(fn => fn.ranges.map((range, i) => ({ ...range, functionStart: i === 0 && fn.ranges[0].startOffset !== 0 })))
+  // Offset zero can also start a function; only a unique full-source range identifies the script.
+  const roots = functions.filter(fn => fn.ranges[0].startOffset === 0 && fn.ranges[0].endOffset === text.length);
+  assert(roots.length <= 1, "Ambiguous V8 script root");
+  const ranges = functions.flatMap(fn => fn.ranges.map((range, i) => ({ ...range, functionStart: i === 0 && fn !== roots[0] })))
     .sort((a, b) => (a.endOffset - a.startOffset) - (b.endOffset - b.startOffset));
   const hits = new Set();
   for (const { start } of statements) {

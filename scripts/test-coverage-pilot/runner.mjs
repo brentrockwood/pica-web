@@ -47,6 +47,13 @@ export default class CoverageRunner extends TestRunner {
     }
   }
 
+  onAfterRetryTask(test) {
+    // Runtime skips bypass onAfterRunTask in Vitest 5.0.4.
+    if (this.active?.id === test.id && (test.result?.pending || test.result?.state === "skip")) {
+      this.active = undefined;
+    }
+  }
+
   onAfterRunTask(test) {
     const active = this.active;
     if (active?.id !== test.id) throw new Error("Coverage task identity mismatch");

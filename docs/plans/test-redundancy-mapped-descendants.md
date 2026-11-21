@@ -77,13 +77,19 @@ python3 scripts/test-coverage-pilot/isolation-experiment.py \
   .analysis/mapped-build-next/transforms.json
 
 # Normalize every collected case before checking the complete experiment.
-node scripts/test-coverage-pilot/unify-coverage.mjs \
-  .analysis/mapped-next/jobs1-r1/child-left \
-  .analysis/mapped-next/source-hashes.json
+for batch in jobs1-r1 jobs1-r2 jobs4-r1 jobs4-r2; do
+  for side in left right; do
+    for mode in main child worker native-only; do
+      node scripts/test-coverage-pilot/unify-coverage.mjs \
+        ".analysis/mapped-next/$batch/$mode-$side" \
+        .analysis/mapped-next/source-hashes.json
+    done
+  done
+done
 python3 scripts/test-coverage-pilot/check-mapped.py .analysis/mapped-next
 ```
 
-The checker validates all 32 outputs and creates `map-probes`; it refuses to overwrite an existing probe directory. The one normalization command above illustrates one case, not the complete batch.
+The checker validates all 32 outputs and creates `map-probes`; it refuses to overwrite an existing probe directory. This is the historical prototype invocation. For current collection, use the [coverage tool guide](../test-coverage-tool.md); old evidence without the main-worker load audit cannot establish current completeness.
 
 Focused execution, mapping/rejection checks, saved-observation regressions, JavaScript/Python syntax, cached project typecheck, and standalone fixture typechecks passed. Scoped ESLint ignored the three experimental TypeScript files because no matching configuration exists; this is **not lint verification**. Full-suite, browser, build/package, and whole-project lint checks were not run. Links and whitespace were checked.
 

@@ -2,6 +2,21 @@
 
 The initial delivery on AI1 on 2026-11-20 was followed by an independent review that found two accepted-coverage errors and missing counter validation. Those findings invalidate the earlier completion claim as evidence of correctness. The fixes and fresh verification below supersede that claim. Independent re-review on 2026-11-21 verified all three findings resolved and approved the tool within its documented boundary. The [operating guide](../test-coverage-tool.md) defines the current bounded contract.
 
+## PR review follow-up (2026-11-21)
+
+PR #2 review identified seven additional issues. The fixes are bounded corrections, not renewed analyzer development:
+
+- Native statement sampling distinguishes a unique full-source script range from a function beginning at offset zero. Real V8 regressions cover creation, uncalled/called bodies and record reordering. Identical script/function spans fail closed.
+- The CLI rejects output paths inside its tool source tree, including symlink aliases, before creating artifacts or running preflight.
+- Historical replay skips an absent optional `workers` directory and uses independent copies instead of hard links. Required missing artifacts still fail.
+- Both historical collection entry points save source hashes before Vitest. Normalization requires the snapshot, verifies observed source identity, and removes stale accepted evidence before validation. Old evidence must not be retrofitted with current hashes.
+- The custom runner clears ownership after runtime skips, which bypass normal completion in Vitest 5.0.4. Sequential tests can continue; concurrent attribution remains rejected.
+- The historical mapping reproduction block now normalizes all 32 cases before its checker.
+
+Verification used an ordinary disposable copy on AI1, Linux/Node 22.22.1, with existing pinned dependencies. Evidence remains under `.analysis/pr2-review-20261121T192608Z/checkout/.analysis/` in the canonical AI1 checkout. Canonical source, historical evidence and services were not changed. The new `check-cli.py`, `check-native-points.mjs`, `check-runner.mjs`, `check-replay.py` and `check-evidence.py` checks passed there. The runner check deliberately exercises failing and concurrent suites; the replay check stubs normalization and proves copying behavior only. The evidence check uses tiny Istanbul records with the real normalizer.
+
+Fresh `check-adversarial.py` passed its 20 observations and corruption/audit probes, including expected collector exclusions (exit 2). The real sample again accepted 16 tests / 32 observations, 2,012 locations and 65 candidates. The production mapping sample accepted six tests / 12 observations with exact known lines across main, child and worker routes. Both `check-results.py` modes passed. A fresh historical `run-experiment.py` control run passed four tests with one deliberate skip; `check-control.mjs` verified phase attribution and original TypeScript coordinates. These are focused checks, not a whole-suite or cross-platform completeness claim. Full application verification remains the PR CI gate. Snapshot checks do not detect transient edit-and-restore activity or lock the source tree during collection.
+
 ## Independent re-review disposition
 
 A fresh reviewer exercised 120 observations, including deliberate exclusions and two JSON-import normalization failures, plus 19 copied-report counter mutations. All three original findings were independently verified resolved. The 43 accepted original comparison observations retained their historical line sets, and the real sample again accepted 16 tests across 32 observations with 2,012 locations and 65 candidate pairs. These results do not establish assertion equivalence or permission to delete tests.

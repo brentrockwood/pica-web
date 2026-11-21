@@ -1,9 +1,14 @@
 """One isolated validation run: OUTPUT baseline|coverage WORKERS SELECTION [Vitest args]."""
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+
+spec = importlib.util.spec_from_file_location('isolation', Path(__file__).with_name('isolation-experiment.py'))
+isolation = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(isolation)
 
 output = Path(sys.argv[1]).resolve()
 collect = sys.argv[2] == "coverage"
@@ -22,6 +27,8 @@ env.update({
     "PER_TEST_OUTPUT": str(output), "PER_TEST_COLLECT": str(int(collect)),
     "PER_TEST_WORKERS": str(workers), "PER_TEST_SELECTION": str(selection), "NO_COLOR": "1",
 })
+if collect:
+    isolation.prepare(output)
 command = ["node", "node_modules/vitest/vitest.mjs", "run", "--config", "scripts/test-coverage-pilot/config.mjs", *sys.argv[5:]]
 time = ["/usr/bin/time", "-f", "%e %U %S %M %I %O %x"]
 with (output / "run.log").open("w") as log:

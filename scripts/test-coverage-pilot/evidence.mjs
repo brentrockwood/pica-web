@@ -1,21 +1,23 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+const directory = resolve(process.argv[2]);
+await rm(`${directory}/evidence.json`, { force: true });
+const sourceHashes = JSON.parse(await readFile(`${directory}/source-hashes.json`, "utf8"));
 const requireTools = createRequire(resolve(".analysis/tools/package.json"));
 const { createCoverageMap } = await import(pathToFileURL(requireTools.resolve("@vitest/istanbul-lib-coverage")));
 const { createSourceMapStore } = await import(pathToFileURL(requireTools.resolve("@vitest/istanbul-lib-source-maps")));
-const directory = resolve(process.argv[2]);
 const report = JSON.parse(await readFile(`${directory}/tests.json`, "utf8"));
 assert.equal(report.success, true, "Only successful test runs produce accepted evidence");
 const records = [];
 const locations = {};
 const sources = {};
 const hash = (text) => createHash("sha256").update(text).digest("hex");
-for (const filename of (await readdir(directory)).filter((name) => name.endsWith(".json") && !["tests.json", "evidence.json", "metrics.json"].includes(name)).sort()) {
+for (const filename of (await readdir(directory)).filter((name) => name.endsWith(".json") && !["tests.json", "evidence.json", "metrics.json", "source-hashes.json"].includes(name)).sort()) {
   const raw = JSON.parse(await readFile(`${directory}/${filename}`, "utf8"));
   assert.equal(raw.state, "pass");
   assert.equal(raw.bodyExecuted, true);
@@ -27,7 +29,8 @@ for (const filename of (await readdir(directory)).filter((name) => name.endsWith
     for (const absolute of mapped.files()) {
       const file = relative(process.cwd(), absolute);
       assert(!file.startsWith(".."), `Unexpected source outside checkout: ${file}`);
-      if (!sources[file]) sources[file] = hash(await readFile(absolute));
+      assert(Object.hasOwn(sourceHashes, file), `Source missing from pre-run manifest: ${file}`);
+      sources[file] = sourceHashes[file];
       const data = mapped.fileCoverageFor(absolute).toJSON();
       const add = (kind, location, extra = {}) => {
         const entry = { file, kind, location, ...extra };
@@ -55,5 +58,8 @@ assert.equal(new Set(records.map((record) => record.id)).size, records.length);
 const actual = records.map((record) => JSON.stringify([record.file, record.names.join(" "), record.location]));
 assert.deepEqual(actual.sort(), expected.sort(), "Missing, extra, or misidentified per-test records");
 const evidence = { schema: 1, coordinateConvention: "original source, 1-based lines, 0-based columns", sources, locations, tests: records, skipped: report.numPendingTests };
+for (const [file, digest] of Object.entries(sources)) {
+  assert.equal(hash(await readFile(resolve(file))), digest, `Source changed since collection: ${file}`);
+}
 await writeFile(`${directory}/evidence.json`, `${JSON.stringify(evidence)}\n`);
 console.log(JSON.stringify({ directory, tests: records.length, skipped: evidence.skipped, sourceFiles: Object.keys(sources).length, observedLocations: Object.keys(locations).length }));

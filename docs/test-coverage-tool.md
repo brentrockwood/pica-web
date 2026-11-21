@@ -31,7 +31,7 @@ python3 scripts/test-coverage-pilot/coverage.py run \
 python3 scripts/test-coverage-pilot/check-results.py .analysis/coverage-tool-demo-final real
 ```
 
-**Every output directory must be new.** Change the output name when repeating a command; existing evidence is never overwritten. `--jobs` defaults to 1. Opt into parallelism only after checking that the selected tests do not use shared fixed paths, ports or external state. Each job receives private HOME/temp/XDG/config/data/socket/cache/report paths, but all jobs share the checkout, dependencies, host, credentials and network. This is not a security sandbox.
+**Every output directory must be new and outside `scripts/test-coverage-pilot/`.** The tool rejects outputs inside its own source tree, including symlink aliases, to prevent recursive tool snapshots. Change the output name when repeating a command; existing evidence is never overwritten. `--jobs` defaults to 1. Opt into parallelism only after checking that the selected tests do not use shared fixed paths, ports or external state. Each job receives private HOME/temp/XDG/config/data/socket/cache/report paths, but all jobs share the checkout, dependencies, host, credentials and network. This is not a security sandbox.
 
 Select one test without writing a manifest:
 
@@ -87,7 +87,7 @@ The common unit is an original-source executable **statement-start line**, colla
 - Main worker: Vitest's standard Istanbul aggregate, with its original-source remapping and coverage exclusions. This includes imports needed to collect unselected tests in the same file. A synchronous Node load hook records native module loads before evaluation. Project modules loaded outside Vitest's transform path, including ordinary `createRequire()`/`require()` calls, exclude the observation with `main-native-project-load`, even if unrelated instrumented code contributes positive coverage. The tool does not assume that a main-worker native report exists. Load receipts are saved incrementally because Vitest may terminate that worker without an exit event; missing registration or receipts exclude the observation. This guard also conservatively excludes native `require()` of project-local JSON data; that known over-exclusion loses observations rather than admitting false candidates.
 - Descendants: native V8 coverage for the selected Node executable and its worker threads. Process launches come from strace; worker creation comes from parent-side Node events. Registration, reports and closure receipts must reconcile. Suppressed hooks, missing reports/receipts, removed audit listeners and nonzero worker exits are rejected.
 - Source inventory: JavaScript/TypeScript under `src`, `pi-packages`, `pi-web-plugins`, `scripts` and `extensions`, plus registered generated files/maps. Test/test-support code, collector infrastructure, dependencies and runtime internals are not candidate source. Main coverage also retains Vitest's standard exclusions. Unknown generated `.analysis` code and unregistered code under these project roots are rejected, not silently assigned zero.
-- Plain descendant JavaScript and the fixed single-source TypeScript build below are supported. Native statement hits use exact source-map statement starts and innermost V8 ranges. Missing or conflicting generated positions, or conflicting counts on equally specific containing ranges, fail closed. This conservatively excludes some ordinary classes with both static and unused instance initializers; it does not credit unused fields or method bodies. Source, generated code and map hashes must match; generated code/maps must also match a deterministic compiler rebuild.
+- Plain descendant JavaScript and the fixed single-source TypeScript build below are supported. Native statement hits use exact source-map statement starts and innermost V8 ranges. Missing or conflicting generated positions, or conflicting counts on equally specific containing ranges, fail closed. The script root must be distinguishable from a function with the same full-source span; ambiguous roots are excluded rather than guessing whether a creation point executed. This conservatively excludes some ordinary classes with both static and unused instance initializers; it does not credit unused fields or method bodies. Source, generated code and map hashes must match; generated code/maps must also match a deterministic compiler rebuild.
 
 Istanbul statement maps must have exactly matching counter keys. Every statement counter and every V8 range counter used for normalization must be a finite, nonnegative number. A missing or malformed counter is not zero execution. Invalid Istanbul evidence removes any stale normalized output; invalid native evidence produces an incomplete diagnostic map, never a candidate.
 
@@ -128,9 +128,14 @@ python3 scripts/test-coverage-pilot/check-operational.py .analysis/coverage-tool
 
 The operational checker expects and verifies child-command failures/exclusions: empty evidence, timeout, unsupported query-bearing native mapping, no-overwrite behavior, zero/duplicate selections, skips, assertion failure and unsupported test options. Its own exit must be 0.
 
-Run the review regressions and mapping/ownership guards against fresh evidence:
+Run the focused review checks and mapping/ownership guards against fresh evidence:
 
 ```sh
+python3 scripts/test-coverage-pilot/check-cli.py
+node scripts/test-coverage-pilot/check-native-points.mjs
+node scripts/test-coverage-pilot/check-runner.mjs
+python3 scripts/test-coverage-pilot/check-replay.py
+python3 scripts/test-coverage-pilot/check-evidence.py
 python3 scripts/test-coverage-pilot/check-adversarial.py .analysis/coverage-adversarial-next
 python3 scripts/test-coverage-pilot/check-unifier-guards.py .analysis/coverage-tool-controls
 node scripts/test-coverage-pilot/build-mapped-fixtures.mjs .analysis/coverage-mapped-build-next
@@ -142,6 +147,8 @@ python3 scripts/test-coverage-pilot/check-mapped.py .analysis/coverage-mapped-ne
 ```
 
 The adversarial checker verifies plain JS and mapped TS class execution across main/child/worker, positive-helper `require()` exclusions, valid CJS import/child controls, malformed positive counters and missing load audits. Its exit must be 0; its collector deliberately returns 2 for six excluded cases. Mutation probes use real copies, not hard links. The mapping checker rejects missing registrations, hashes/compiler drift and coherently shifted maps; the unifier guards reject missing ownership/closure/audits, unknown successful exec formats and stale accepted output after source drift. Each guard checker creates a new probe subdirectory; do not rerun it on the same evidence directory.
+
+The runner checker uses real Vitest lifecycle execution with controlled counters; its deliberate failure and concurrent rejection suites must be recognized by the checker, whose exit must be 0. The replay checker tests file copying with normalization stubbed, not acceptance of historical observations. The evidence checker exercises the historical normalizer against tiny Istanbul records and the pre-run source manifest. Historical `benchmark.py` and `run-experiment.py` now save that manifest before collection; normalization rejects missing manifests or observed-source drift and removes stale accepted output. Do not retrofit old artifacts with current hashes.
 
 Historical prototype/review artifacts lack the required main-worker load audit and cannot establish current completeness. Recollect them rather than adding synthetic receipts or expecting the old unchanged-replay checker to pass. Preserve old evidence read-only, especially raw inputs hard-linked by earlier replays. Fresh CLI collection does not require historical artifacts.
 

@@ -1,9 +1,14 @@
 """Run the bounded pilot; GNU time measures the runner and all waited-for children."""
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+
+spec = importlib.util.spec_from_file_location('isolation', Path(__file__).with_name('isolation-experiment.py'))
+isolation = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(isolation)
 
 root = Path.cwd()
 output = root / ".analysis" / "pilot"
@@ -27,6 +32,8 @@ for workers in (1, 2, 3):
                 "PER_TEST_OUTPUT": str(directory), "PER_TEST_COLLECT": str(int(collect)),
                 "PER_TEST_WORKERS": str(workers), "NO_COLOR": "1",
             })
+            if collect:
+                isolation.prepare(directory)
             command = ["/usr/bin/time", "-f", "%e %U %S %M %I %O %x", "-o", str(directory / "time.txt"),
                        "node", "node_modules/vitest/vitest.mjs", "run", "--config", "scripts/test-coverage-pilot/config.mjs"]
             with (directory / "run.log").open("w") as log:
@@ -45,7 +52,7 @@ for workers in (1, 2, 3):
                     subprocess.run(["/usr/bin/time", "-f", "%e %U %S %M %I %O %x", "-o", str(directory / "normalize-time.txt"),
                                     "node", "scripts/test-coverage-pilot/evidence.mjs", str(directory)],
                                    env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
-                record["rawRecordBytes"] = sum(path.stat().st_size for path in directory.glob("*.json") if path.name not in ("tests.json", "evidence.json"))
+                record["rawRecordBytes"] = sum(path.stat().st_size for path in directory.glob("*.json") if path.name not in ("tests.json", "evidence.json", "source-hashes.json"))
                 record["evidenceBytes"] = (directory / "evidence.json").stat().st_size
             metrics.append(record)
             (output / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")

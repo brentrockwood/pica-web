@@ -203,9 +203,11 @@ def summarize(output, cases, observations):
 
 
 def run(args):
+    output = Path(args.output).resolve()
+    if output.is_relative_to(HERE):
+        raise ValueError('Output must be outside the tool source directory')
     preflight()
     cases = validate_cases(json.loads(Path(args.cases).read_text()) if args.cases else [dict(key='selected', file=args.file, title=args.title)])
-    output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     save(output/'selection.json', cases)
     isolation.prepare(output, args.transforms)

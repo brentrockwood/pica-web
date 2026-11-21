@@ -1,6 +1,5 @@
 """Replay saved prototype evidence into a NEW root; original raw artifacts stay read-only."""
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -17,12 +16,14 @@ for original in sorted(source.glob('jobs*-r*/*/unified.json')):
     directory.mkdir(parents=True)
     for name in ['case.json', 'tests.json', 'aggregate', 'native', 'contexts', 'workers']:
         item = original.parent/name
+        if name == 'workers' and not item.exists():
+            continue
         if item.is_dir():
-            shutil.copytree(item, directory/name, copy_function=os.link)
+            shutil.copytree(item, directory/name)
         else:
-            os.link(item, directory/name)
+            shutil.copyfile(item, directory/name)
     for item in original.parent.glob('execve.*'):
-        os.link(item, directory/item.name)
+        shutil.copyfile(item, directory/item.name)
     with (directory/'normalize.log').open('w') as log:
         result = subprocess.run(['node', 'scripts/test-coverage-pilot/unify-coverage.mjs', str(directory), str(output/'source-hashes.json')], stdout=log, stderr=subprocess.STDOUT)
     assert result.returncode in [0, 2], directory

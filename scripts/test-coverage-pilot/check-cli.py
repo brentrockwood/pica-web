@@ -3,10 +3,30 @@ import copy
 import importlib.util
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('coverage_tool', Path(__file__).with_name('coverage.py'))
 tool = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tool)
+
+# Reject recursive snapshots before preflight or any output writes, including symlink aliases.
+with tempfile.TemporaryDirectory() as temp:
+    alias = Path(temp)/'tools'
+    alias.symlink_to(tool.HERE, target_is_directory=True)
+    for output in [tool.HERE, tool.HERE/'results', alias/'results']:
+        try:
+            tool.run(SimpleNamespace(output=str(output)))
+            raise AssertionError('Recursive output accepted')
+        except ValueError as error:
+            assert 'outside the tool source directory' in str(error), error
+    with patch.object(tool, 'preflight', side_effect=RuntimeError('preflight reached')):
+        try:
+            tool.run(SimpleNamespace(output=str(Path(temp)/'results')))
+            raise AssertionError('Preflight bypassed')
+        except RuntimeError as error:
+            assert str(error) == 'preflight reached'
+    assert not (Path(temp)/'results').exists()
 
 case = dict(key='one', file='src/shared/themePreference.test.ts', title='a title')
 test = dict(file=str(tool.ROOT/case['file']), title=case['title'], options={}, result=dict(state='passed'))
