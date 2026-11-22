@@ -1,3 +1,4 @@
+import { sessionSearchMessages } from "../../sessionSearchMessages";
 import { LocalizationController, localization } from "../../localization/browser";
 import { horizontalScrollEdges } from "./scrollEdges";
 import { appShellMessages as m } from "../../appShellMessages";
@@ -7,7 +8,7 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import type { Machine, Project, SessionInfo, Workspace } from "../../api";
 import { machineIconUrl } from "../../instanceIdentity";
 import { shortSessionId } from "../../sessionLabels";
-import { renderNavigationMenuIcon } from "../tabIcons";
+import { renderNavigationMenuIcon, renderSearchIcon } from "../tabIcons";
 import type { NavigationSection } from "../../appShell/navigationState";
 
 @customElement("app-context-bar")
@@ -26,6 +27,7 @@ export class AppContextBar extends LitElement {
   @property({ attribute: false }) session?: SessionInfo;
   @property({ attribute: false }) refreshControl: unknown;
   @property({ attribute: false }) onOpenSection?: (section: NavigationSection) => void;
+  @property({ attribute: false }) onSearchSessions?: () => void;
   @property({ attribute: false }) onShowActions?: () => void;
   @property({ attribute: false }) onShowNavigation?: () => void;
   @property({ type: Boolean }) hiddenActiveDestination = false;
@@ -94,7 +96,7 @@ export class AppContextBar extends LitElement {
             </button>
           </li>
         </ol>
-        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} data-navigation-trigger title=${m.t("navigation")} aria-label=${m.t("navigation")} aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.refreshControl}${this.renderActionsButton()}</div>` : null}
+        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} data-navigation-trigger title=${m.t("navigation")} aria-label=${m.t("navigation")} aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.refreshControl}${this.renderSearchButton()}${this.renderActionsButton()}</div>` : null}
       </nav>
     `;
   }
@@ -111,6 +113,15 @@ export class AppContextBar extends LitElement {
   private readonly hideBrokenIcon = (event: Event): void => {
     if (event.currentTarget instanceof HTMLImageElement) event.currentTarget.style.display = "none";
   };
+
+  private renderSearchButton() {
+    if (this.onSearchSessions === undefined) return null;
+    return html`
+      <button type="button" class="context-action-button" title=${sessionSearchMessages.t("title")} aria-label=${sessionSearchMessages.t("title")} aria-haspopup="dialog" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onSearchSessions?.(); }}>
+        ${renderSearchIcon()}
+      </button>
+    `;
+  }
 
   private renderActionsButton() {
     if (this.onShowActions === undefined) return null;
@@ -131,7 +142,7 @@ export class AppContextBar extends LitElement {
   }
 
   private hasContextActions(): boolean {
-    return this.refreshControl !== undefined || this.onShowActions !== undefined || this.onShowNavigation !== undefined;
+    return this.onSearchSessions !== undefined || this.refreshControl !== undefined || this.onShowActions !== undefined || this.onShowNavigation !== undefined;
   }
 
   private observeContextItems(): void {

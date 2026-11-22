@@ -13,6 +13,7 @@ it("submits only explicitly, uses selected machine, opens results and rejects st
   expect(search).not.toHaveBeenCalled();
   view.shadowRoot?.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
   await vi.waitFor(() => { expect(view.shadowRoot?.querySelector(".result")).not.toBeNull(); });
+  expect(view.shadowRoot?.activeElement).toBe(view.shadowRoot?.querySelector(".result"));
   expect(search).toHaveBeenCalledWith("literal.*", "remote", expect.any(AbortSignal));
   view.shadowRoot?.querySelector<HTMLButtonElement>(".result")?.click(); expect(view.onOpen).toHaveBeenCalledWith(result);
   let finish: ((response: { results: typeof result[]; truncated: boolean }) => void) | undefined;

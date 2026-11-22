@@ -2363,6 +2363,7 @@ export class PiWebApp extends LitElement {
     toggleMachines: () => { this.cancelAutomaticProjectNavigation(); this.navigationSections.toggle("machines"); },
     selectMachine: (machine: Machine) => this.selectNavigationItem("machines", "projects", () => this.selectMachineWithMemory(machine)),
     removeMachine: (machine: Machine) => { void this.removeMachine(machine); },
+    searchSessions: () => { this.sessionSearchOpen = true; },
     showActions: () => { this.setState({ actionPaletteOpen: true }); },
     toggleProjects: () => { this.cancelAutomaticProjectNavigation(); this.navigationSections.toggle("projects"); },
     toggleWorkspaces: () => { this.cancelAutomaticProjectNavigation(); this.navigationSections.toggle("workspaces"); },
@@ -2507,6 +2508,7 @@ export class PiWebApp extends LitElement {
         .workspaceLabelItems=${guard(this.workspaceSurfaceInputs(), () => (workspace: Workspace) => this.workspaceLabelItems(workspace))}
         .sessionLabelItems=${guard(this.workspaceSurfaceInputs(), () => (session: SessionInfo) => this.sessionLabelItems(session))}
         .refreshControl=${this.appShell.shouldShowAppRefreshInHeader() ? this.renderAppRefresh() : undefined}
+        .onSearchSessions=${this.navigationActions.searchSessions}
         .onShowActions=${this.navigationActions.showActions}
         .onTogglePanel=${this.appShell.isMobileNavigationLayout ? undefined : this.navigationPanelActions.toggle}
         .onToggleProjects=${this.navigationActions.toggleProjects}
@@ -3093,7 +3095,7 @@ export class PiWebApp extends LitElement {
 
   private sessionActions(): AppAction[] {
     return [
-      { id: "app.sessions.find", get title() { return sessionSearchMessages.t("title"); }, run: () => { this.sessionSearchOpen = true; } },
+      { id: "app.sessions.find", get title() { return sessionSearchMessages.t("title"); }, get description() { return sessionSearchMessages.t("description"); }, run: this.navigationActions.searchSessions },
       {
         id: "app.sessions.cleanup",
         get title() { return sessionCleanupMessages.t("actionTitle"); },
@@ -4379,6 +4381,7 @@ export class PiWebApp extends LitElement {
         .onOpenSection=${this.handleOpenNavigationSection}
         .onShowNavigation=${this.navigationPreferences.mobileCollapsed ? this.showNavigation : undefined}
         .hiddenActiveDestination=${this.availableNavigationTabs().some((tab) => tab.id === this.selectedNavigationTab())}
+        .onSearchSessions=${this.navigationActions.searchSessions}
         .onShowActions=${this.navigationActions.showActions}
       ></app-context-bar>
     `;
