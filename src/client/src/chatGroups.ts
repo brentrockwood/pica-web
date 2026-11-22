@@ -1,4 +1,4 @@
-import type { ChatLine, ChatPart } from "./chatTypes";
+import type { ChatLine, ChatPart, ToolExecutionPart } from "./chatTypes";
 import { interventionRequestText } from "./chatInterventions";
 
 export type ChatGroup =
@@ -27,6 +27,7 @@ export function groupChatMessages(
   messages: ChatLine[],
   indexOffset = 0,
   preserveCustomMessage: (customType: string) => boolean = () => false,
+  standaloneTool: (part: ToolExecutionPart) => boolean = () => false,
 ): ChatGroup[] {
   const groups: ChatGroup[] = [];
   let eventMessages: Extract<ChatGroup, { kind: "group" }>["messages"] = [];
@@ -43,7 +44,7 @@ export function groupChatMessages(
   };
 
   messages.forEach((message, index) => {
-    const { technical, readable } = messageSlices(message, preserveCustomMessage);
+    const { technical, readable } = messageSlices(message, preserveCustomMessage, standaloneTool);
     const technicalParts = technical.parts;
     const readableParts = readable.parts;
     const absoluteIndex = indexOffset + index;
@@ -68,16 +69,24 @@ export function groupChatMessages(
 // Transcript updates replace changed lines; historical slices can retain identity.
 const slicesByMessage = new WeakMap<ChatLine, { technical: ChatLine; readable: ChatLine; policy: string }>();
 
-function messageSlices(message: ChatLine, preserveCustomMessage: (customType: string) => boolean): { technical: ChatLine; readable: ChatLine } {
+function messageSlices(
+  message: ChatLine,
+  preserveCustomMessage: (customType: string) => boolean,
+  standaloneTool: (part: ToolExecutionPart) => boolean,
+): { technical: ChatLine; readable: ChatLine } {
   // Renderer eligibility may change without replacing the transcript line.
   const preserved = message.parts.filter((part) => part.type === "customMessage" && preserveCustomMessage(part.customType));
-  const policy = JSON.stringify(preserved.map((part) => message.parts.indexOf(part)));
+  const parts = message.parts.flatMap((part) => part.type === "customMessage" && !preserved.includes(part) ? part.parts : [part]);
+  const standalone = parts.filter((part) => part.type === "toolExecution" && standaloneTool(part));
+  const policy = JSON.stringify([preserved.map((part) => message.parts.indexOf(part)), standalone.map((part) => parts.indexOf(part))]);
   const cached = slicesByMessage.get(message);
   if (cached?.policy === policy) return cached;
-  const parts = message.parts.flatMap((part) => part.type === "customMessage" && !preserved.includes(part) ? part.parts : [part]);
-  const visibleParts = parts.filter((part) => part.type !== "toolResultBoundary" && part.type !== "empty");
-  const readableParts = visibleParts.filter((part) => isReadablePart(message, part));
-  const technicalParts = visibleParts.filter((part) => !isReadablePart(message, part));
+  const readableParts: ChatPart[] = [];
+  const technicalParts: ChatPart[] = [];
+  for (const part of parts) {
+    if (part.type === "toolResultBoundary" || part.type === "empty") continue;
+    (isReadablePart(message, part) || standalone.includes(part) ? readableParts : technicalParts).push(part);
+  }
   const metadata = { ...(message.entryId === undefined ? {} : { entryId: message.entryId }), ...(message.source === undefined ? {} : { source: message.source }), ...(message.meta === undefined ? {} : { meta: message.meta }) };
   const slices = {
     policy,

@@ -34,8 +34,8 @@ import { ProjectStore, projectStorePath } from "./storage/projectStore.js";
 import { SessionPinStore, sessionPinStorePath } from "./storage/sessionPinStore.js";
 import { navigationPreferenceStorePath } from "./storage/navigationPreferenceStore.js";
 import { registerSessionPinRoutes } from "./navigationPreferenceRoutes.js";
-import { PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY } from "../shared/pluginSessionLifecycleTypes.js";
-import { createServerPluginSessionLifecycleCapabilityFactory } from "./plugins/serverPluginSessionLifecycleCapability.js";
+import { PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY, PI_WEB_HOST_SESSION_LIFECYCLE_V2_CAPABILITY } from "../shared/pluginSessionLifecycleTypes.js";
+import { createServerPluginSessionLifecycleCapabilityFactory, createServerPluginSessionLifecycleV2CapabilityFactory } from "./plugins/serverPluginSessionLifecycleCapability.js";
 import { createServerPluginSessionStateCapabilityFactory } from "./plugins/serverPluginSessionStateCapability.js";
 import { createServerPluginProjectTrustCapabilityFactory } from "./plugins/serverPluginProjectTrustCapability.js";
 import { PI_WEB_HOST_SESSION_STATE_CAPABILITY } from "../shared/pluginSessionStateTypes.js";
@@ -251,7 +251,7 @@ async function createSessionDaemonRuntime() {
       capability: MAINTENANCE_TERMINAL_CAPABILITY,
       value: resolveMaintenanceExecutionContext(childProcessEnvironment, daemonLaunchCwd),
     }],
-    lateHostCapabilities: [PI_WEB_HOST_WORKSPACES_CAPABILITY, PI_WEB_HOST_PI_SESSIONS_CAPABILITY, PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY, PI_WEB_HOST_CATALOG_CAPABILITY, PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY, PI_WEB_HOST_SESSION_STATE_CAPABILITY, PI_WEB_HOST_PROJECT_TRUST_CAPABILITY],
+    lateHostCapabilities: [PI_WEB_HOST_WORKSPACES_CAPABILITY, PI_WEB_HOST_PI_SESSIONS_CAPABILITY, PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY, PI_WEB_HOST_CATALOG_CAPABILITY, PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY, PI_WEB_HOST_SESSION_LIFECYCLE_V2_CAPABILITY, PI_WEB_HOST_SESSION_STATE_CAPABILITY, PI_WEB_HOST_PROJECT_TRUST_CAPABILITY],
   });
   let sessionsForFailedConstruction: PiSessionService | undefined;
   let projectLifecycleForFailedConstruction: ProjectLifecycleService | undefined;
@@ -371,6 +371,7 @@ async function createSessionDaemonRuntime() {
       ...(spawnTargets === undefined ? {} : { spawnTargets }),
       messageTargets,
       sessionMessagesEnabled: config.sessionMessages,
+      crossProjectSessionMessages: config.crossProjectSessionMessages,
       subsessionsEnabled: config.subsessions,
       askUserEnabled: config.askUser,
       config: configService,
@@ -414,10 +415,10 @@ async function createSessionDaemonRuntime() {
     await serverPlugins.resumeWithHostCapabilityFactories([
       createServerPluginWorkspacesCapabilityFactory({ projects, workspaces: workspaceProviders }),
       createServerPluginCatalogCapabilityFactory({ projects, workspaces: workspaceProviders, sessions, pins }),
-      createServerPluginSessionLifecycleCapabilityFactory({
+      ...[createServerPluginSessionLifecycleCapabilityFactory, createServerPluginSessionLifecycleV2CapabilityFactory].map((createFactory) => createFactory({
         projects, workspaces: workspaceProviders, sessions, pins,
         onMutation: ({ projectId }) => { workspaceChanges.notify(projectId); },
-      }),
+      })),
       createServerPluginPiSessionsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
       createServerPluginPiSessionEventsCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),
       createServerPluginSessionStateCapabilityFactory({ projects, workspaces: workspaceProviders, sessions }),

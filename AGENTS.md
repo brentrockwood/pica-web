@@ -40,6 +40,12 @@ Use `.agents/skills/documentation-guide/SKILL.md` whenever writing, modifying, r
 
 For website design and styling, follow `.interface-design/system.md` and use `docs/design-system.html` as the working reference. Shared website foundations belong in `docs/styles.css`; page-specific homepage composition belongs in `docs/home.css`.
 
+Website copy leads with capabilities: what people can do, why it helps, and their next useful action. Keep requirements, limitations, trust boundaries, and disruptive consequences visible. Put API contracts and implementation instructions in canonical Markdown references and code; link to them rather than duplicating them in capability pages. Setup and troubleshooting pages may retain precise procedures, with advanced alternatives disclosed on demand. Agents and humans must both be able to reach the details.
+
+## Architecture and feature placement
+
+Follow `.agents/skills/code-quality-architecture/SKILL.md` for implementation and review. New feature-specific behavior belongs in plugins or Pi packages by default. Extend core only for genuinely generic host capabilities or behavior that cannot reasonably live in a plugin; explain the boundary in the PR. Bundled plugins must use the same supported public contracts as external plugins.
+
 ## Testing guidance
 
 Read and follow [testing policy](docs/testing.md) whenever adding, changing, planning, reviewing, or reassessing tests, triaging failures, or creating test helpers.
@@ -49,6 +55,10 @@ For a focused investigation of uncertain test protection or a proposed consolida
 Use [test harnesses](docs/testing-harnesses.md) for implementation mechanics and [development and delivery checks](docs/development-checks.md) for verification commands and scope. Keep policy and detailed conventions in those documents rather than duplicating them here.
 
 The project Pi prompt `/reassess-tests` lives in [`.pi/prompts/reassess-tests.md`](.pi/prompts/reassess-tests.md).
+
+## CodeRabbit and automatic merging
+
+Follow `docs/coderabbit.md` when managing CodeRabbit reviews or automatic merging. Use actual current-head GitHub reviews as approval evidence, not summary comments or a green CodeRabbit check. Do not use blanket approval/resolution commands or administrator bypass to clear a blocked PR.
 
 ## Verification reporting
 
