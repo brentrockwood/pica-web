@@ -12,7 +12,7 @@ import { DetailCopyController } from "./detailCopy";
 import type { WorkspaceLabelItem } from "../plugins/types";
 import { canDeleteWorkspace, workspaceRemovalActionLabel } from "../workspaceDeletion";
 import { createActionMenuController } from "./actionMenu";
-import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } from "./activityBadge";
+import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind, statusWorkKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
@@ -155,7 +155,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
                   @keydown=${(event: KeyboardEvent) => { this.handleWorkspaceKeydown(event, workspace); }}
                 >
                   <div class="action-main ui-nav-row-main">
-                    ${this.renderWorkspaceMain(label, items, workspace, kind, unread)}
+                    ${this.renderWorkspaceMain(label, items, workspace, kind, unread, statusWorkKind(flags))}
                   </div>
                   ${this.renderWorkspaceMenu(label, items, workspace, this.workspaces.indexOf(workspace))}
                 </div>
@@ -175,12 +175,12 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     return html`<button class="ui-button ui-toolbar-title section-toggle ui-nav-section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("workspaces")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.workspaces.length)}</small></button>`;
   }
 
-  private renderActivity(kind: ReturnType<typeof statusActivityKind>, unread: boolean): TemplateResult | undefined {
+  private renderActivity(kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult | undefined {
     const unreadLabel = unread ? messages.t("workspaceUnread") : undefined;
-    return renderActionActivityIndicator(kind, kind === "terminal" ? messages.t("workspaceTerminal") : messages.t("workspaceActive"), unreadLabel);
+    return renderActionActivityIndicator(kind, workKind === "terminal" ? messages.t("workspaceTerminal") : messages.t("workspaceActive"), unreadLabel, workKind);
   }
 
-  private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace, kind: ReturnType<typeof statusActivityKind>, unread: boolean): TemplateResult {
+  private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace, kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult {
     return html`
       <span class="workspace-primary">
         <span class="workspace-primary-label ui-nav-row-label">${label}</span>
@@ -192,7 +192,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
         </small>
       `}
       ${renderListActivity(this.statusSnapshot?.lastActivity?.workspaces[workspace.id], this.listActivity.now)}
-      ${this.renderActivity(kind, unread)}
+      ${this.renderActivity(kind, unread, workKind)}
     `;
   }
 

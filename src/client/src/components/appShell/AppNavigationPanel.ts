@@ -1,3 +1,5 @@
+import { sessionSearchMessages } from "../../sessionSearchMessages";
+import { renderSearchIcon } from "../tabIcons";
 import { LocalizationController } from "../../localization/browser";
 import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
@@ -65,6 +67,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: Boolean }) sessionsCollapsed = false;
   @property({ type: Number }) startingSessionCount = 0;
   @property({ type: Boolean }) canStartSession = false;
+  @property({ attribute: false }) onSearchSessions?: () => void;
   @property({ attribute: false }) onShowActions?: () => void;
   @property({ attribute: false }) onTogglePanel?: () => void;
   @property({ attribute: false }) onToggleMachines?: () => void;
@@ -225,6 +228,9 @@ export class AppNavigationPanel extends LitElement {
         ></machine-switcher>
         <div class="header-actions">
           ${this.refreshControl}
+          <button type="button" class="ui-button ui-button--icon" title=${sessionSearchMessages.t("title")} aria-label=${sessionSearchMessages.t("title")} aria-haspopup="dialog" @click=${() => { this.onSearchSessions?.(); }}>
+            ${renderSearchIcon()}
+          </button>
           <button type="button" class="ui-button actions-button" title=${m.t("showActions")} aria-label=${m.t("showActions")} @click=${() => { this.onShowActions?.(); }}>
             <svg class="actions-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M13 2 4 14h7l-1 8 10-13h-7V2Z"></path>

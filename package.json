@@ -1,6 +1,6 @@
 {
   "name": "@jmfederico/pi-web",
-  "version": "1.202611.3",
+  "version": "1.202611.5",
   "description": "Web UI for persistent Pi Coding Agent sessions in real workspaces.",
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
@@ -40,6 +40,7 @@
     "!examples/**/node_modules",
     "!examples/**/dist",
     "docs/plugins.md",
+    "docs/private-input.md",
     "docs/scheduled-tasks.md",
     "docs/config.md",
     "docs/assets",

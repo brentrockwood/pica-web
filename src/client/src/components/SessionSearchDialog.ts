@@ -38,6 +38,9 @@ export class SessionSearchDialog extends LitElement {
       this.searching = false;
     }
   }
+  protected override updated(changed: PropertyValues): void {
+    if (changed.has("response")) this.renderRoot.querySelector<HTMLButtonElement>(".result")?.focus();
+  }
   private async search(): Promise<void> {
     if (this.query.trim() === "" || this.searching) return;
     const controller = new AbortController();
@@ -59,8 +62,7 @@ export class SessionSearchDialog extends LitElement {
       <header class="ui-dialog-header"><h2 class="ui-dialog-title">${messages.t("title")}</h2><button class="ui-button ui-button--icon" aria-label=${messages.t("close")} @click=${this.onClose}>×</button></header>
       <p class="scope">${messages.t("scope", { machine: this.machineName || this.machineId })}</p>
       <form class="ui-dialog-search-row" @submit=${(event: Event) => { event.preventDefault(); void this.search(); }}>
-        <input class="ui-dialog-search" aria-label=${messages.t("query")} maxlength="500" .value=${this.query} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.query = event.target.value; }}>
-        <button class="ui-button ui-button--primary" type="submit" ?disabled=${this.searching || this.query.trim() === ""}>${messages.t("search")}</button>
+        <input class="ui-dialog-search" aria-label=${messages.t("query")} placeholder=${messages.t("placeholder")} maxlength="500" .value=${this.query} @input=${(event: Event) => { if (event.target instanceof HTMLInputElement) this.query = event.target.value; }}>
       </form>
       <div class="ui-dialog-body" aria-busy=${this.searching}>
         ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
@@ -73,6 +75,8 @@ export class SessionSearchDialog extends LitElement {
   }
   static override styles = [uiDialogStyles, uiSelectionStyles, css`
     .scope { margin: 12px; color: var(--pi-muted); }
+    .ui-dialog-search-row { margin-inline: 12px; }
+    .result:focus { background: var(--pi-selection-bg); }
     .result { display: flex; flex-direction: column; align-items: stretch; text-align: start; }
     .result > * { overflow-wrap: anywhere; }
     .excerpt { white-space: pre-wrap; }

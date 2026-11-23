@@ -81,6 +81,12 @@ Application-panel command helpers keep their execution scope explicit. `context.
 
 Older hosts may omit application tabs or maintenance commands; update PI WEB to use them.
 
+### Restart services on a machine
+
+Browser v5 action and application-panel contexts optionally expose `context.lifecycle`. Its `requestRestart()` opens the host's restart dialog on the context's captured machine. Pass `{ services: "web" | "sessiond" | "both" }` to preselect services. For a direct user-facing button, pass an explicit service choice and `confirm: false`; identify the machine and services and show the interruption warning beside that control.
+
+The host resolves commands from that machine's status API and launches its maintenance terminal. Missing targeted commands never fall back to restarting both services or to another machine. Retained contexts reject requests after machine selection changes. The promise returns `"cancelled"` when confirmation is dismissed or `"launched"` when the terminal accepts the command. Neither reports restart completion or service health. Direct-launch failures are displayed by the host and reject; confirmation errors remain in the dialog for retry or cancellation. Removing a dialog during launch does not cancel that launch: its promise still reports acceptance or rejects. Feature-detect the capability on older hosts rather than bypassing it with a raw restart command. Update installation planning and confirmation remain with the update CLI.
+
 ### Follow selection while a tab is closed
 
 Plugins can follow the selected machine, project, workspace, and session even while their tab is closed. This provides basic selection information, not the transcript or private session-file path. Older hosts may lack selection observation; update PI WEB when a plugin needs it.
@@ -167,6 +173,10 @@ Each contribution has a unique local `id`. Declare the host capability `pi-web/t
 
 `next()` returns renderer callbacks, not HTML. Treat the returned renderer as read-only; return a new renderer object to replace or wrap it. The web transcript supplies its core default renderer at the end of the chain, so wrappers can decorate the normal tool card as well as another plugin's renderer. Delegating unchanged all the way to that default keeps the normal view without a custom-view toggle. The resolver type still permits `undefined` for contexts without a supplied default. Returning `undefined` from a resolver ends selection; the host does not automatically try later resolvers and instead shows the core fallback. Returning `undefined` from a selected renderer's `render` also shows that fallback without restarting selection.
 
+A resolved tool renderer may set `placement: "activity" | "standalone"`. Omission means `"activity"`, retaining normal grouping. `"standalone"` keeps the tool entry outside collapsed activity, including quiet mode, its default view, and fallback after a declined or failed render. Placement belongs to the returned renderer, not the contribution: unchanged delegation preserves downstream placement; a wrapper chooses its own placement or copies the downstream renderer's property. Older hosts ignore placement, so update PI WEB before relying on standalone visibility; `transcript-rendering@1` alone does not detect this addition.
+
+The host resolves tools before grouping, including entries in collapsed activity, and reuses that selection when rendering the same entry snapshot. Keep resolvers side-effect-free and repeatable; do not rely on a resolver running on every render or view toggle. Selection can repeat when entry snapshots, eligible contributions, or transcript scope change. A resolver failure uses normal grouping and the core fallback; a render failure retains the selected placement.
+
 **Custom messages** contribute `{ id, target: "custom-message", customType, render }`. The first eligible contribution in discovery order with an exact, case-sensitive `customType` wins, like TUI custom-message rendering. Messages have no `next` callback. Declining or failing does not try a later matching message renderer.
 
 The [standalone example](https://github.com/jmfederico/pi-web/tree/main/examples/transcript-renderer-plugin) demonstrates actual tool chaining: a wrapper resolver precedes the checks renderer in the same contribution array. Its core pattern is:
@@ -180,6 +190,7 @@ The [standalone example](https://github.com/jmfederico/pi-web/tree/main/examples
     const downstream = next();
     if (!downstream) return undefined;
     return {
+      ...downstream, // Preserve placement when wrapping.
       render(input) {
         const body = downstream.render(input);
         return body === undefined ? undefined : html`
@@ -193,7 +204,9 @@ The [standalone example](https://github.com/jmfederico/pi-web/tree/main/examples
 
 `scope` contains `machineId` and `sessionId`, with optional `projectId` and `workspaceId`. A tool `entry` contains `toolName`, `status` (`pending`, `running`, `success`, or `error`), and optional `toolCallId`, `args`, `content`, `details`, and `resultText`. A custom-message `entry` contains `customType`, `content`, and optional `entryId` and `details`. Treat opaque `args`, `content`, and `details` as untrusted data: validate your own schema before using them.
 
-Both tool and message `render` callbacks receive `{ scope, entry, signal, fail }`. Rendering is synchronous and returns a Lit `TemplateResult` or `undefined`; returning a Promise is unsupported. Unlike resolver delegation through `next()`, returning `undefined` from `render` declines the current body and retains the existing view without restarting selection. An empty template deliberately renders an empty body. A thrown error or `fail(error)` restores the existing view. The host's default-view control also lets the user bypass the custom body.
+Both tool and message `render` callbacks receive `{ scope, entry, signal, fail }` and, when available, their own paired `backend`. The backend uses the [scoped backend interface](#read-only-catalogs-and-scoped-backends-v5) on `scope.machineId`, not the currently selected machine. Each renderer in a tool wrapper chain receives its own package's backend, even when a wrapper forwards its input downstream. Browser-only plugins have no backend; older hosts may also omit it, so check availability before offering backend-dependent actions. Requests and channels are cancelled with the render's `signal`, and retained backend handles cannot start new work after cancellation.
+
+Rendering is synchronous and returns a Lit `TemplateResult` or `undefined`; returning a Promise is unsupported. Unlike resolver delegation through `next()`, returning `undefined` from `render` declines the current body and retains the existing view without restarting selection. An empty template deliberately renders an empty body. A thrown error or `fail(error)` restores the existing view. The host's default-view control also lets the user bypass the custom body.
 
 Rendering may repeat as inputs change. Keep it repeatable and do not execute tools or session operations as a side effect of rendering. Honor `signal` for asynchronous work and release resources: it aborts when inputs change, the entry unmounts, the plugin is disabled, or the user selects the default view. Report asynchronous failures through `fail`; obsolete calls are ignored.
 
@@ -579,9 +592,10 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 - **Mermaid** uses the default manual mode: choose **Render** to preview `mermaid` fences and `.mmd`/`.mermaid` text files. Its bundled engine runs locally in an opaque-origin sandbox with network access blocked; no diagram service receives your source. Interactive links and external resources are intentionally unavailable. Disable Mermaid in plugin Settings to keep plain code rendering. Only a browser reload is needed after changing this browser-only plugin.
 - **Code highlighting** colours completed chat code fences in common languages automatically, including JavaScript/TypeScript, Python, shell, HTML/CSS, JSON, Go, Rust, SQL, and diff. Choose **Raw** to view plain source or **Preview** to restore colours; Copy always copies the source. Unsupported, unlabelled, incomplete, and oversized blocks stay plain. Highlighting runs locally without executing code. Disable Code highlighting in plugin Settings to keep plain code rendering; reload the browser after changing this browser-only plugin.
 - **Info** displays machine and PI WEB status without requiring a workspace, adds workspace details when selected, and provides copyable diagnostics.
-- **Updates** shows update/restart guidance when relevant and offers a manual update check. Run uses the selected machine's maintenance terminal in `$PI_WEB_DATA_DIR/maintenance` (default `~/.pi-web/maintenance`), whether or not a workspace is selected. It requires an available Terminal provider on that machine; guidance and Copy remain available without one.
+- **Updates** shows update/restart guidance when relevant and offers a manual update check. Run uses the selected machine's maintenance terminal in `$PI_WEB_DATA_DIR/maintenance` (default `~/.pi-web/maintenance`), whether or not a workspace is selected. Restart buttons use the core machine-lifecycle capability and launch directly, without another dialog; the panel shows their machine, services, and interruption warnings. While preparing the command and opening its terminal, restart buttons on that machine are disabled. Pending feedback ends at terminal acceptance, without tracking the restart itself. Update commands retain the update CLI's confirmation. Execution requires an available Terminal provider on that machine; guidance and Copy remain available without one. See [restarting from PI WEB](config.md#restarting-from-pi-web).
 - **Workspace Tasks** turns project commands into runnable buttons.
 - **Scheduled agent tasks (beta)** is an optional, disabled-by-default package for agent-managed schedules and a read-only **Scheduled tasks** dashboard. See [installation, timezone settings, and execution behavior](scheduled-tasks.md).
+- **Private input** is an optional, disabled-by-default package that lets an agent request a secret through an inline form and save it to a new file without including its value in the conversation. See [installation, use, recovery, and privacy boundaries](private-input.md).
 - **Spanish / Español** and **Swedish / Svenska** are optional interface language packs, included but disabled by default. See [Language packs](#language-packs) to enable them.
 
 ### Language packs
@@ -1080,7 +1094,7 @@ A few design boundaries matter before implementation:
 
 Plugins can manage a saved session by its full `{ projectId, workspaceId, sessionId }` identity, without selecting it in the browser or opening its runtime. The host resolves the workspace; plugins do not supply session file paths.
 
-Browser v5 invocation contexts expose optional `context.sessions`, bound to that context's machine. Check for its presence on older hosts. Server plugins declare `PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY` from `@jmfederico/pi-web/server-plugin-api` in `requires`, then resolve it in `start({ capabilities })`. The capability is local to that daemon and becomes available after workspace providers have settled; workspace providers must not depend on it.
+Browser v5 invocation contexts expose optional `context.sessions`, bound to that context's machine. Check for its presence on older hosts. Server plugins declare `PI_WEB_HOST_SESSION_LIFECYCLE_CAPABILITY` from `@jmfederico/pi-web/server-plugin-api` in `requires`, then resolve it in `start({ capabilities })`. Plugins that need runtime control instead declare and resolve `PI_WEB_HOST_SESSION_LIFECYCLE_V2_CAPABILITY`: v2 includes all v1 methods plus `abort` and `close`. Both exact versions remain available. The capability is local to that daemon and becomes available after workspace providers have settled; workspace providers must not depend on it.
 
 | Method | Effect |
 | --- | --- |
@@ -1090,6 +1104,8 @@ Browser v5 invocation contexts expose optional `context.sessions`, bound to that
 | `archive(target)` | Archive that session, without implicitly archiving descendants. |
 | `restore(target)` | Restore an archived session without starting its runtime. |
 | `delete(target)` | Permanently delete an already-archived session. |
+| `abort(target)` | Interrupt current work and clear queued prompts, leaving the runtime open. Server capability v2; optional on the browser helper. |
+| `close(target)` | Stop work and unload the runtime, preserving any saved conversation. Server capability v2; optional on the browser helper. |
 
 ```ts
 // In a browser plugin's event handler, using IDs returned by context.catalog:
@@ -1103,6 +1119,34 @@ const state = await sessions.get(target);
 **Pins protect cleanup, not explicit plugin commands.** A plugin can explicitly archive a pinned session or delete it once archived; it does not need to unpin first. Native busy-session and archived-only deletion safeguards still apply. Plugins are trusted code and must decide when to request confirmation for destructive actions. Cleanup previews remain estimates: cleanup rechecks eligibility and pins when it runs, rather than freezing a session list.
 
 Calls accept an optional `{ signal }`. Cancellation or plugin disposal prevents new work; it does not undo a mutation already admitted by the host. Call mutations from event handlers or background work, not render or availability callbacks. Errors are reported to the caller; do not automatically retry a destructive operation after an ambiguous transport failure without checking the current state.
+
+### Interrupting current work
+
+Use the existing `catalog.sessions.list({ projectId, workspaceId })` to discover sessions and their `runtime` status (`not-hosted`, `idle`, or `busy`). Pass a selected session's full identity to `abort`; no separate listing or browser selection is needed.
+
+```ts
+// In a browser plugin's event handler:
+const sessions = context.sessions;
+if (sessions?.abort === undefined) throw new Error("This host does not support session interruption");
+await sessions.abort({ projectId, workspaceId, sessionId });
+```
+
+The browser helper keeps its v1 shape and exposes `abort` and `close` as optional methods for compatibility. Check each method before use. Method presence detects browser support, not the target daemon's version: an older remote daemon can reject the request. Report that error rather than falling back to another lifecycle operation.
+
+Aborting preserves the conversation and uses the same interruption behavior as the native Stop action. It targets current work only: it does not open a saved session, cancel pending startup, stop descendants, or persistently pause the session. Valid sessions without a hosted runtime are a no-op; missing or mismatched identities reject. Later messages and child lifecycle notices can start another run, including reopening a parent. A loop over sessions is therefore not a guaranteed bulk pause. Interrupted tools may have partial effects; abort does not roll those effects back.
+
+### Closing a runtime
+
+Use `close(target)` to discard a newly created, unused session that exists only in memory. It stops current work, clears queued prompts, and disposes the runtime; a hosted-only session then disappears from the catalog. If a transcript was already persisted, the saved conversation remains discoverable and can be reopened. Closing is therefore not a substitute for archiving or permanently deleting saved sessions.
+
+```ts
+// Discard a session created for a workflow that was cancelled before use:
+const sessions = context.sessions;
+if (sessions?.close === undefined) throw new Error("This host does not support closing session runtimes");
+await sessions.close({ projectId, workspaceId, sessionId });
+```
+
+Closing one session does not close its descendants or prevent later reopening. A child runtime's teardown suppresses its own new completion notice, but already-pending notices and other messages can still reopen a parent. Calls validate current catalog membership: after discarding a hosted-only session, another call with its now-missing identity rejects. Closing a saved session without a runtime does not open it.
 
 ### Pin-storage upgrade
 

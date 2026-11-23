@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
 import { CapturingSessionEventHub, fakeRuntime, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModelRuntime } from "./piSessionService.testSupport.js";
 
-async function fixture() {
+function fixture() {
   const hub = new CapturingSessionEventHub();
   const fake = fakeRuntime("streaming-status", { isStreaming: true });
   const ref = sessionRef("streaming-status");
@@ -11,7 +11,6 @@ async function fixture() {
     sessionManager: sessionGateway([sessionRecord(ref.id)]),
     createAgentRuntime: runtimeCreator(fake.runtime), heartbeatIntervalMs: 60_000,
   });
-  await service.status(ref);
   const stats = vi.spyOn(fake.session, "getSessionStats");
   const context = vi.spyOn(fake.session, "getContextUsage");
   const statuses = () => hub.globalEvents.flatMap((event) => event.type === "status.update" ? [event.status] : []);
@@ -24,11 +23,12 @@ describe("streaming status work", () => {
     ["thinking_delta", "assistant.thinking.delta"],
     ["toolcall_delta", "pi.event"],
     ["future_delta", "pi.event"],
-  ])("forwards %s without reading historical usage, while explicit reads stay fresh", async (deltaType, clientType) => {
-    const f = await fixture();
+  ])("forwards %s without reading historical usage, including on explicit status reads", async (deltaType, clientType) => {
+    const f = fixture();
     const block = { type: "text", text: "" };
     const message = { role: "assistant", content: [block] };
     try {
+      const initial = await f.service.status(f.ref);
       f.fake.emit({ type: "message_start", message });
       f.stats.mockClear();
       f.context.mockClear();
@@ -43,20 +43,17 @@ describe("streaming status work", () => {
       expect(f.statuses()).toHaveLength(statusCount);
       expect(f.hub.sessionEvents.slice(eventCount).filter(({ event }) => event.type === clientType)).toHaveLength(100);
 
-      const stats = f.fake.session.getSessionStats();
-      f.stats.mockReturnValue({ ...stats, cost: 7 });
-      f.stats.mockClear();
-      expect((await f.service.status(f.ref)).cost).toBe(7);
+      expect((await f.service.status(f.ref)).cost).toBe(initial.cost);
       const snapshot = await f.service.transcriptSnapshot(f.ref);
-      expect(snapshot.status.cost).toBe(7);
+      expect(snapshot.status.cost).toBe(initial.cost);
       expect(snapshot.partial).toMatchObject(message);
-      expect(f.stats).toHaveBeenCalledTimes(2);
-      expect(f.context).toHaveBeenCalledTimes(2);
+      expect(f.stats).not.toHaveBeenCalled();
+      expect(f.context).not.toHaveBeenCalled();
     } finally { await f.service.dispose(); }
   });
 
   it.each([{ tokens: 42, contextWindow: 100, percent: 42 }, undefined])("reuses context usage supplied by session statistics, including unavailable usage (%j)", async (contextUsage) => {
-    const f = await fixture();
+    const f = fixture();
     try {
       const stats = { ...f.fake.session.getSessionStats(), contextUsage };
       f.stats.mockReturnValue(stats);
@@ -67,9 +64,12 @@ describe("streaming status work", () => {
   });
 
   it("publishes fresh status for lifecycle, tool, queue, and unknown SDK events", async () => {
-    const f = await fixture();
+    const f = fixture();
     try {
-      const types = ["agent_start", "message_start", "message_end", "tool_execution_start", "tool_execution_update", "tool_execution_end", "turn_end", "queue_updated", "future_runtime_event", "compaction_end", "agent_settled"];
+      await f.service.status(f.ref);
+      f.stats.mockClear();
+      f.context.mockClear();
+      const types = ["agent_start", "message_start", "message_end", "tool_execution_start", "tool_execution_end", "turn_end", "queue_update", "future_runtime_event", "compaction_end", "agent_settled"];
       for (const type of types) {
         const before = f.statuses().length;
         f.fake.session.isStreaming = type !== "agent_settled";
@@ -77,8 +77,8 @@ describe("streaming status work", () => {
         expect(f.statuses()).toHaveLength(before + 1);
         expect(f.statuses().at(-1)?.isStreaming).toBe(type !== "agent_settled");
       }
-      expect(f.stats).toHaveBeenCalledTimes(types.length);
-      expect(f.context).toHaveBeenCalledTimes(types.length);
+      expect(f.stats).not.toHaveBeenCalled();
+      expect(f.context).not.toHaveBeenCalled();
     } finally { await f.service.dispose(); }
   });
 });
