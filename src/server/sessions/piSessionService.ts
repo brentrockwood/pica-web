@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { sessionNotificationSources, type SessionNotificationPresentation } from "../../shared/sessionNotificationPresentation.js";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { open } from "node:fs/promises";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { McpAuthServerOption, McpAuthServersResponse, OAuthFlowState, SessionActivity, SessionQueueMessageMutation } from "../../shared/apiTypes.js";
@@ -58,7 +58,7 @@ import { SessionStatistics } from "./sessionStatistics.js";
 import { projectSessionTree, type ProjectableSessionTreeNode } from "./sessionTreeProjection.js";
 import { messageHistoryTargetId } from "./messageHistoryTarget.js";
 import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInput } from "./sessionArchiveStore.js";
-import { findArchiveCandidateByExactId, planSessionArchiveTree, type SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
+import { archivePathKey, findArchiveCandidateByExactId, hasParentPathSegment, planSessionArchiveTree, type SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
 import type { ActiveSession } from "./sessionRuntimeStore.js";
 import type { PluginSessionSnapshot } from "../../shared/pluginCatalogTypes.js";
 import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
@@ -2399,7 +2399,7 @@ export class PiSessionService implements SessionRouteService {
     // Do not yield between these admission checks and acquiring the mutation receipt below.
     if (!this.isCurrentActiveSession(session)) throw new Error("Session changed before message delivery. Retry the message.");
     this.assertSessionArchiveInactive(session.sessionId);
-    if (this.isTreeExclusiveOperationActive(session)) throw new Error("Cannot receive a session message while a session lifecycle operation is active");
+    this.assertSessionLifecycleInactive(session, "receive a session message");
     this.assertTreeNavigationInactive(session, "receive a session message");
     const delivery = this.hasActiveWork(session) ? "queued" : "started";
     let agentStarted = false;
@@ -3430,6 +3430,7 @@ export class PiSessionService implements SessionRouteService {
   }
 
   private beginPromptSubmission(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true, expandPromptTemplates = true): Promise<void> {
+    this.assertSessionLifecycleInactive(session, "send a prompt");
     this.publishActivity(session, behavior === "steer" ? { kind: "steeringQueued" } : behavior === "followUp" ? { kind: "messageQueued" } : { kind: "promptAccepted" }, "active");
     const echoes = this.pendingPromptEchoes.get(session) ?? [];
     const userCount = historyMessagesFromEntries(session.sessionManager.getBranch()).filter((message) => isRecord(message) && message["role"] === "user").length;
@@ -3945,10 +3946,11 @@ export class PiSessionService implements SessionRouteService {
     if (root === undefined) throw new Error("Session not found");
     if (session !== undefined && !archiveCandidateMatchesSession(root, session)) throw new Error(`Session changed while preparing archival: ${root.id}. Retry the request.`);
     const candidateLinks = async (target: WorkspaceArchiveCandidate, includeLinks: boolean): Promise<readonly PersistedParentSubsessionLink[]> => {
-      const manager = target.activeSession?.sessionManager;
+      // An archived runtime is a cached view; only its backing file grants ancestry.
+      const manager = target.archived ? undefined : target.activeSession?.sessionManager;
       if (manager !== undefined) {
         const header = manager.getHeader?.();
-        if (manager.getSessionId() === target.id && (header === undefined || header === null || archiveParentPathsEqual(header.parentSession, target.parentSessionPath))) {
+        if (manager.getSessionId() === target.id && (header === undefined || header === null || archivePathsEqual(header.parentSession, target.parentSessionPath))) {
           return includeLinks ? (manager.getEntries?.() ?? manager.getBranch()).map(parsePersistedParentSubsessionLink).filter((link) => link !== undefined) : [];
         }
       } else {
@@ -3958,7 +3960,7 @@ export class PiSessionService implements SessionRouteService {
         // Cold active roots have no archive record to establish a legacy header’s workspace.
         const allowMissingCwd = target.archived || target !== root;
         if (provenance?.id === target.id && (provenance.cwd === undefined ? allowMissingCwd : cwdPathsEqual(provenance.cwd, target.cwd))
-          && archiveParentPathsEqual(provenance.parentSession, target.parentSessionPath)) return provenance.links ?? [];
+          && archivePathsEqual(provenance.parentSession, target.parentSessionPath)) return provenance.links ?? [];
       }
       throw new Error(`Session changed while preparing archival: ${target.id}. Retry the request.`);
     };
@@ -3981,8 +3983,8 @@ export class PiSessionService implements SessionRouteService {
       targets.push(parent);
       const linkedChild = (id: string, path: string | undefined) => {
         if (path === undefined) return undefined;
-        const child = catalog.find((candidate) => candidate.id === id && sessionPathsEqual(candidate.path, path)
-          && candidate.parentSessionPath !== undefined && sessionPathsEqual(candidate.parentSessionPath, parent.path));
+        const child = catalog.find((candidate) => candidate.id === id && archivePathsEqual(candidate.path, path)
+          && candidate.parentSessionPath !== undefined && archivePathsEqual(candidate.parentSessionPath, parent.path));
         if (child !== undefined) assertUnambiguous(id);
         return child;
       };
@@ -3995,7 +3997,7 @@ export class PiSessionService implements SessionRouteService {
       // omit a known child just because appending that entry failed.
       for (const id of this.subsessionChildren.get(parent.id) ?? []) {
         const link = this.subsessionLinks.get(id);
-        if (link?.parentSessionFile !== undefined && !trackedLinkParentFileMatches(link, parent.path)) continue;
+        if (link?.parentSessionFile !== undefined && !archivePathsEqual(link.parentSessionFile, parent.path)) continue;
         const child = link?.parentSessionFile === undefined ? undefined : linkedChild(id, link.childSessionFile);
         if (child === undefined) throw new Error(`Cannot verify tracked child while preparing archival: ${id}`);
         await visit(child);
@@ -4171,10 +4173,7 @@ export class PiSessionService implements SessionRouteService {
     await this.runTreeExclusiveOperation([{ sessionId: session.sessionId, session }], "Stop current session activity before detaching", async () => {
       await this.assertWritable(ref);
       await clearParentSession(sessionFile);
-      // The header rewrite keeps the inode, and whenever it leaves the file's
-      // size unchanged it is invisible to the gateway's summary memo, which
-      // cannot detect such rewrites from identity + size alone and would keep
-      // listing the old parent link until restart.
+      // The header-only rewrite preserves inode and size, the gateway's memo keys.
       this.sessionManager.invalidateSessionFile(sessionFile);
       clearParentSessionHeader(session.sessionManager);
       this.unregisterSubsession(session.sessionId);
@@ -4357,12 +4356,25 @@ export class PiSessionService implements SessionRouteService {
   }
 
   private executeDeleteArchivedBatch(records: readonly ArchivedSessionRecord[]): Promise<SessionBatchExecutionResult<ArchivedSessionRecord>> {
-    return this.executeSessionLifecycleBatch(records, "delete", async (ready) => {
-      const deleted = await this.archiveStoreDeleteArchivedMany(ready.map((record) => record.sessionId));
-      const deletedIds = new Set(deleted);
+    return this.executeSessionLifecycleBatch(records, "delete", async (ready, failures) => {
+      if (ready.length === 0) return [];
+      const batchDeleted = this.archiveStore.deleteArchivedMany === undefined ? undefined
+        : new Set(await this.archiveStore.deleteArchivedMany(ready.map((record) => record.sessionId)));
+      const deleted: string[] = [];
       for (const record of ready) {
+        if (batchDeleted === undefined) {
+          if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
+          try {
+            await this.archiveStore.deleteArchived(record.sessionId);
+          } catch (error: unknown) {
+            failures.push({ sessionId: record.sessionId, error: errorMessage(error) });
+            continue;
+          }
+        } else if (!batchDeleted.has(record.sessionId)) continue;
+        deleted.push(record.sessionId);
         const link = this.subsessionLinks.get(record.sessionId);
-        if (deletedIds.has(record.sessionId) && link?.childSessionFile !== undefined && record.originalPath !== undefined
+        if (link?.childSessionFile !== undefined && record.originalPath !== undefined
+          && !hasParentPathSegment(record.originalPath) && !hasParentPathSegment(link.childSessionFile)
           && sessionPathsEqual(record.originalPath, link.childSessionFile)) this.unregisterSubsession(record.sessionId);
       }
       return deleted;
@@ -4372,7 +4384,7 @@ export class PiSessionService implements SessionRouteService {
   private async executeSessionLifecycleBatch<T extends { sessionId: string; cwd: string }>(
     items: readonly T[],
     reason: "archive" | "delete",
-    persist: (ready: readonly T[]) => Promise<string[]>,
+    persist: (ready: readonly T[], failures: SessionBulkFailure[]) => Promise<string[]>,
   ): Promise<SessionBatchExecutionResult<T>> {
     const result: SessionBatchExecutionResult<T> = { successes: [], failures: [], skippedBusySessionIds: [] };
     const targets: TreeExclusiveOperationTarget[] = [];
@@ -4400,7 +4412,7 @@ export class PiSessionService implements SessionRouteService {
         }
       }
       try {
-        const persistedIds = await persist(ready);
+        const persistedIds = await persist(ready, result.failures);
         const readyById = new Map(ready.map((item) => [item.sessionId, item]));
         result.successes = persistedIds.flatMap((sessionId) => {
           const item = readyById.get(sessionId);
@@ -4423,14 +4435,6 @@ export class PiSessionService implements SessionRouteService {
     const records: ArchivedSessionRecord[] = [];
     for (const input of oldestFirst) records.push(await this.archiveStore.archive(input));
     return records;
-  }
-
-  private async archiveStoreDeleteArchivedMany(sessionIds: readonly string[]): Promise<string[]> {
-    if (sessionIds.length === 0) return [];
-    if (this.archiveStore.deleteArchivedMany !== undefined) return this.archiveStore.deleteArchivedMany(sessionIds);
-    if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
-    for (const sessionId of sessionIds) await this.archiveStore.deleteArchived(sessionId);
-    return [...sessionIds];
   }
 
   private async cleanupPlan(request: NormalizedSessionCleanupRequest) {
@@ -4494,10 +4498,10 @@ export class PiSessionService implements SessionRouteService {
       // Legacy index-only records used the listed file. That fallback requires
       // a unique listing; an explicit originalPath must match the listed file.
       const match = group.find((row) => !row.archived && (record.originalPath === undefined
-        ? group.length === 1 : sessionPathsEqual(row.path, record.originalPath)));
+        ? group.length === 1 : archivePathsEqual(row.path, record.originalPath)));
       const archived = archiveCandidateFromArchivedRecord(record, match?.listEntry);
       if (archived === undefined) ambiguousIds.add(record.sessionId);
-      else if (match !== undefined && archiveParentPathsEqual(match.parentSessionPath, archived.parentSessionPath)) {
+      else if (match !== undefined && archivePathsEqual(match.parentSessionPath, archived.parentSessionPath)) {
         Object.assign(match, archived);
       } else group.push(archived);
     }
@@ -4510,7 +4514,7 @@ export class PiSessionService implements SessionRouteService {
       const group = groupFor(session.sessionId);
       const match = group.find((row) => archiveCandidateMatchesSession(row, session));
       const header = session.sessionManager.getHeader?.();
-      if (match !== undefined && (header === undefined || header === null || archiveParentPathsEqual(header.parentSession, match.parentSessionPath))) {
+      if (match !== undefined && (header === undefined || header === null || archivePathsEqual(header.parentSession, match.parentSessionPath))) {
         match.activeSession = session;
       } else group.push(archiveCandidateFromActiveSession(session, false));
     }
@@ -4523,7 +4527,7 @@ export class PiSessionService implements SessionRouteService {
       if (groupFor(row.id).length > 1) ambiguousIds.add(row.id);
       for (const path of [row.path, row.archivePath]) {
         if (path === undefined) continue;
-        const key = resolve(path);
+        const key = archivePathKey(path);
         const owner = pathOwners.get(key);
         if (owner !== undefined && owner !== row.id) {
           ambiguousIds.add(owner);
@@ -5744,8 +5748,13 @@ export class PiSessionService implements SessionRouteService {
     }
   }
 
+  private assertSessionLifecycleInactive(session: PiAgentSession, action: string): void {
+    if (this.isTreeExclusiveOperationActive(session)) throw new Error(`Cannot ${action} while a session lifecycle operation is active`);
+  }
+
   private beginSessionEntryMutation(session: PiAgentSession, action: string): void {
     this.assertSessionArchiveInactive(session.sessionId);
+    this.assertSessionLifecycleInactive(session, action);
     if (this.selfArchiveRequests.delete(session)) {
       this.notifySelfArchive(session, "Self-archival canceled because new session work was submitted.", "warning");
     }
@@ -6206,12 +6215,12 @@ function archiveCandidateFromActiveSession(session: PiAgentSession, archived: bo
   };
 }
 
-function archiveParentPathsEqual(a: string | undefined, b: string | undefined): boolean {
-  return a === undefined || b === undefined ? a === b : sessionPathsEqual(a, b);
+function archivePathsEqual(a: string | undefined, b: string | undefined): boolean {
+  return a === undefined || b === undefined ? a === b : archivePathKey(a) === archivePathKey(b);
 }
 
 function archiveCandidateMatchesSession(candidate: WorkspaceArchiveCandidate, session: PiAgentSession): boolean {
-  return sessionFileMatches(session, candidate.archivePath ?? candidate.path);
+  return archivePathsEqual(nonEmptyString(session.sessionFile), candidate.archivePath ?? candidate.path);
 }
 
 function archiveInputFromCandidate(candidate: WorkspaceArchiveCandidate): ArchiveSessionInput {
@@ -6418,15 +6427,30 @@ async function sessionFileHeaderMatches(sessionFile: string, expected: { session
 }
 
 async function clearParentSession(sessionFile: string): Promise<void> {
-  const content = await readFile(sessionFile, "utf8");
-  const newlineIndex = content.indexOf("\n");
-  const firstLine = newlineIndex === -1 ? content : content.slice(0, newlineIndex);
-  const rest = newlineIndex === -1 ? "" : content.slice(newlineIndex);
-  const header: unknown = JSON.parse(firstLine);
-  if (!isRecord(header) || header["type"] !== "session") throw new Error("Invalid session file header");
-  if (header["parentSession"] === undefined) return;
-  delete header["parentSession"];
-  await writeFile(sessionFile, `${JSON.stringify(header)}${rest}`, "utf8");
+  const file = await open(sessionFile, "r+");
+  try {
+    const content = await file.readFile();
+    const newline = content.indexOf(0x0a);
+    const end = newline < 0 ? content.length : newline;
+    const length = end > 0 && content[end - 1] === 0x0d ? end - 1 : end;
+    const header: unknown = JSON.parse(content.toString("utf8", 0, length));
+    if (!isRecord(header) || header["type"] !== "session") throw new Error("Invalid session file header");
+    if (header["parentSession"] === undefined) return;
+    delete header["parentSession"];
+    // Some SDK appends bypass service admission. Never truncate or move the transcript body.
+    const json = Buffer.from(JSON.stringify(header));
+    if (json.length > length) throw new Error("Detached session header exceeds its original length");
+    const padded = content.subarray(0, length);
+    json.copy(padded);
+    padded.fill(0x20, json.length);
+    for (let offset = 0; offset < length;) {
+      const { bytesWritten } = await file.write(padded, offset, length - offset, offset);
+      if (bytesWritten === 0) throw new Error("Could not finish writing detached session header");
+      offset += bytesWritten;
+    }
+  } finally {
+    await file.close();
+  }
 }
 
 function clearParentSessionHeader(sessionManager: PiSessionManager): void {

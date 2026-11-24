@@ -122,6 +122,57 @@ afterEach(async () => {
 });
 
 describe("PiSessionService direct-child lifecycle control", () => {
+  it("rejects new prompts while detach owns the transcript and rejects detach while a prompt is running", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-detach-admission-"));
+    tempDirs.push(dir);
+    const path = join(dir, "child.jsonl");
+    await writeFile(path, JSON.stringify({ type: "session", id: CHILD, parentSession: "parent.jsonl" }) + "\n");
+    const child = journalRuntime(CHILD, path);
+    const { service, archiveStore } = fixture([child]);
+    await service.start(CWD);
+    const ref = { id: CHILD, cwd: CWD };
+    const entered = deferred<undefined>();
+    const release = deferred<ArchiveRecord | undefined>();
+    vi.spyOn(archiveStore, "get").mockImplementationOnce(() => { entered.resolve(undefined); return release.promise; });
+    const detach = service.detachParent(ref);
+    try {
+      await entered.promise;
+      await expect(service.prompt(ref, "race")).rejects.toThrow("lifecycle operation is active");
+      expect(child.calls.prompt).toEqual([]);
+    } finally { release.resolve(undefined); await detach; }
+    const prompt = deferred<undefined>();
+    vi.spyOn(child.session, "prompt").mockReturnValue(prompt.promise);
+    try {
+      await service.prompt(ref, "after detach");
+      await expect(service.detachParent(ref)).rejects.toThrow("Stop current session activity");
+    } finally { prompt.resolve(undefined); }
+  });
+
+  it("forgets only confirmed children when a later single-record deletion fails", async () => {
+    const { service, parent, unrelated, archived, archiveStore } = await trackedFixture();
+    await service.spawnSubsession({ spawningCwd: CWD, parentSessionId: PARENT, parentSessionFile: parent.session.sessionFile, prompt: "second task" });
+    await vi.advanceTimersByTimeAsync(0);
+    const ids = [CHILD, unrelated.session.sessionId];
+    for (const id of ids) archived.set(id, { sessionId: id, cwd: CWD, originalPath: `/sessions/${id}.jsonl`, archivedAt: "now" });
+    archiveStore.deleteArchived = (id) => {
+      if (id !== CHILD) return Promise.reject(new Error("delete failed"));
+      archived.delete(id);
+      return Promise.resolve();
+    };
+    expect(await service.deleteArchivedMany(ids.map((id) => ({ id, cwd: CWD })))).toMatchObject({
+      deletedSessionIds: [CHILD], failures: [{ sessionId: ids[1], error: "delete failed" }],
+    });
+    expect((await service.listSubsessions(PARENT, parent.session.sessionFile)).map((child) => child.sessionId)).toEqual([ids[1]]);
+  });
+
+  it("keeps tracking when a confirmed deletion used an ambiguous original path", async () => {
+    const { service, parent, archived, archiveStore } = await trackedFixture();
+    archived.set(CHILD, { sessionId: CHILD, cwd: CWD, originalPath: `/sessions/jump/../${CHILD}.jsonl`, archivedAt: "now" });
+    archiveStore.deleteArchived = () => { archived.delete(CHILD); return Promise.resolve(); };
+    expect(await service.deleteArchivedMany([{ id: CHILD, cwd: CWD }])).toMatchObject({ deletedSessionIds: [CHILD], failures: [] });
+    expect((await service.listSubsessions(PARENT, parent.session.sessionFile)).map((child) => child.sessionId)).toContain(CHILD);
+  });
+
   it("aborts without disposing, then resumes the same linked conversation with literal prompt text", async () => {
     const { service, parent, child, createAgentRuntime } = await trackedFixture();
     const parentLinks = [...parent.entries];

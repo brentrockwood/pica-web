@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -125,6 +125,39 @@ describe("tracked self-archive trees", () => {
     } finally { await f.service.dispose(); }
   });
 
+  it("rejects an archived intermediary replaced after it was opened for viewing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "archive-open-view-"));
+    const archivePath = join(dir, "child.jsonl");
+    const f = fixture();
+    const header = { type: "session", version: 3, id: "child", cwd: "/workspace", timestamp: "2026-01-02T00:00:00Z" };
+    const parentSession = sessionRecord("root").path;
+    try {
+      await writeFile(archivePath, JSON.stringify({ ...header, parentSession }) + "\n");
+      f.archived.push({ sessionId: "child", cwd: header.cwd, originalPath: sessionRecord("child").path,
+        archivePath, parentSessionPath: parentSession, archivedAt: header.timestamp });
+      await f.service.status(sessionRef("root"));
+      const child = f.runtime("child").session;
+      child.sessionFile = archivePath;
+      f.open.mockImplementationOnce((path) => {
+        child.sessionManager = SessionManager.open(path);
+        return child.sessionManager;
+      });
+      await f.service.status(sessionRef("child"));
+      f.readProvenance.mockImplementation(readArchiveProvenance);
+      await f.service.checkSelfArchive("root");
+      const detached = JSON.stringify(header) + "\n";
+      const replacement = join(dir, "replacement.jsonl");
+      await writeFile(replacement, detached);
+      await rename(replacement, archivePath);
+      expect(child.sessionManager.getHeader?.()?.parentSession).toBe(parentSession);
+      await expect(f.service.checkSelfArchive("root")).rejects.toThrow("archival: child");
+      await expect(f.service.archiveTree(sessionRef("root"))).rejects.toThrow("archival: child");
+      expect(await readFile(archivePath, "utf8")).toBe(detached);
+      expect(f.archiveMany).not.toHaveBeenCalled();
+      expect(f.runtime("child").calls.dispose).toBe(0);
+    } finally { await f.service.dispose(); await rm(dir, { recursive: true, force: true }); }
+  });
+
   it.each(["active", "unopened"])("rejects stale archive ancestry when the %s transcript header is detached", async (state) => {
     const f = fixture();
     f.archived.push({ sessionId: "child", cwd: "/workspace", originalPath: sessionRecord("child").path,
@@ -235,7 +268,7 @@ describe("tracked self-archive trees", () => {
       f.list.mockResolvedValue([...f.records.filter((row) => row.id !== "child"), detached, { ...detached, path: "/clones/child.jsonl" }]);
       f.request();
       await vi.runOnlyPendingTimersAsync();
-      expect(f.archiveMany).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ sessionId: "root" })]);
+      await vi.waitFor(() => { expect(f.archiveMany).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ sessionId: "root" })]); });
     } finally { await f.service.dispose(); }
   });
 

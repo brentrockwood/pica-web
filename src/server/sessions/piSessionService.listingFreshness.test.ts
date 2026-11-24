@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -84,28 +84,24 @@ describe("PiSessionService listing of replaced session files", () => {
 
 describe("PiSessionService.detachParent summary memo", () => {
   it("invalidates the gateway summary memo so warm listings re-read the rewritten header", async () => {
-    // The gateway keeps one memoized scanner for its lifetime. Detach rewrites
-    // the header in place, keeping the inode, so the memo's identity + size
-    // key cannot see the change whenever the rewritten file happens to be the
-    // size the memo recorded (a concurrent append can make the shrunk header
-    // net out). Detach must therefore invalidate the entry explicitly, and
-    // the warm listing must show the cleared parent. This test lists through
-    // the real gateway/scanner path on purpose: fakes cannot see the memo.
+    // Detach changes the header without changing the inode or size, so the
+    // real scanner must drop the cached summary instead of reporting the old parent.
     const invalidated: string[] = [];
     const sessionDir = join(tempDir, "detach-sessions");
     await mkdir(sessionDir, { recursive: true });
-    const parentPath = join(sessionDir, "parent.jsonl");
+    const parentPath = join(sessionDir, "parent-🐈.jsonl");
     await writeFile(parentPath, `${JSON.stringify({ type: "session", version: 3, id: "parent", timestamp: "2026-01-01T00:00:00.000Z", cwd: LISTING_CWD })}\n`, "utf8");
     const childPath = join(sessionDir, "child.jsonl");
     await writeFile(parentPath, `${JSON.stringify({ type: "session", version: 3, id: "parent", timestamp: "2026-01-01T00:00:00.000Z", cwd: LISTING_CWD })}\n${JSON.stringify({ type: "custom", customType: "pi-web.subsession.link", data: { spawnedBySessionId: "parent", spawnedSessionId: "child", spawnedSessionFile: childPath } })}\n`, "utf8");
     const message = (id: string, role: string, text: string) =>
       JSON.stringify({ type: "message", id, parentId: "root", timestamp: "2026-01-01T00:01:00.000Z", message: { role, content: [{ type: "text", text }] } });
-    await writeFile(childPath, [
+    const childContent = [
       JSON.stringify({ type: "session", version: 3, id: "child", timestamp: "2026-01-01T00:00:00.000Z", cwd: LISTING_CWD, parentSession: parentPath }),
       JSON.stringify({ type: "custom", customType: "pi-web.subsession.spawned", data: { spawnedBySessionId: "parent", spawnedSessionId: "child" } }),
       message("m1", "user", "hello"),
       message("m2", "assistant", "hi there"),
-    ].join("\n") + "\n", "utf8");
+    ].join("\r\n") + "\r\n";
+    await writeFile(childPath, childContent);
 
     const realGateway = createPiSessionManagerGateway({
       agentDir: TEST_AGENT_DIR,
@@ -139,6 +135,10 @@ describe("PiSessionService.detachParent summary memo", () => {
     // The rewritten file's own path is dropped from the memo — the only
     // signal an identity + size key cannot derive for itself.
     expect(invalidated).toContain(childPath);
+    const rewritten = await readFile(childPath);
+    const beforeBytes = Buffer.from(childContent);
+    const endOfHeader = beforeBytes.indexOf("\r\n");
+    expect(rewritten.subarray(endOfHeader)).toEqual(beforeBytes.subarray(endOfHeader));
 
     const after = await service.list(LISTING_CWD);
     const detached = after.find((session) => session.id === "child");

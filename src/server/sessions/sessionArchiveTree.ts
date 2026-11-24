@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 
 export interface SessionArchiveTreeCandidate {
   id: string;
@@ -11,6 +11,16 @@ export interface SessionArchiveTreePlan<T extends SessionArchiveTreeCandidate> {
   targets: T[];
   unarchivedTargets: T[];
   skippedAlreadyArchivedCount: number;
+}
+
+export function hasParentPathSegment(path: string): boolean {
+  return path.split(sep === "\\" ? /[\\/]/ : "/").includes("..");
+}
+
+// Resolving '..' lexically can cross a different parent than the filesystem after a symlink.
+export function archivePathKey(path: string): string {
+  if (hasParentPathSegment(path)) throw new Error(`Cannot verify transcript path containing '..' while preparing archival: ${path}`);
+  return resolve(path);
 }
 
 export function findArchiveCandidateByExactId<T extends SessionArchiveTreeCandidate>(candidates: readonly T[], sessionId: string): T | undefined {
@@ -31,7 +41,7 @@ function sessionArchiveSubtree<T extends SessionArchiveTreeCandidate>(root: T, c
   const childrenByParentPath = new Map<string, T[]>();
   for (const candidate of candidates) {
     if (candidate.parentSessionPath === undefined) continue;
-    const parentPath = resolve(candidate.parentSessionPath);
+    const parentPath = archivePathKey(candidate.parentSessionPath);
     const children = childrenByParentPath.get(parentPath) ?? [];
     children.push(candidate);
     childrenByParentPath.set(parentPath, children);
@@ -39,7 +49,7 @@ function sessionArchiveSubtree<T extends SessionArchiveTreeCandidate>(root: T, c
 
   const result: T[] = [];
   const visit = (candidate: T, seenPaths: Set<string>) => {
-    const path = resolve(candidate.path);
+    const path = archivePathKey(candidate.path);
     if (seenPaths.has(path)) return;
     result.push(candidate);
     const nextSeenPaths = new Set(seenPaths);
