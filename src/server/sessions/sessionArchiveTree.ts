@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 export interface SessionArchiveTreeCandidate {
   id: string;
   path: string;
@@ -29,18 +31,20 @@ function sessionArchiveSubtree<T extends SessionArchiveTreeCandidate>(root: T, c
   const childrenByParentPath = new Map<string, T[]>();
   for (const candidate of candidates) {
     if (candidate.parentSessionPath === undefined) continue;
-    const children = childrenByParentPath.get(candidate.parentSessionPath) ?? [];
+    const parentPath = resolve(candidate.parentSessionPath);
+    const children = childrenByParentPath.get(parentPath) ?? [];
     children.push(candidate);
-    childrenByParentPath.set(candidate.parentSessionPath, children);
+    childrenByParentPath.set(parentPath, children);
   }
 
   const result: T[] = [];
   const visit = (candidate: T, seenPaths: Set<string>) => {
-    if (seenPaths.has(candidate.path)) return;
+    const path = resolve(candidate.path);
+    if (seenPaths.has(path)) return;
     result.push(candidate);
     const nextSeenPaths = new Set(seenPaths);
-    nextSeenPaths.add(candidate.path);
-    for (const child of childrenByParentPath.get(candidate.path) ?? []) visit(child, nextSeenPaths);
+    nextSeenPaths.add(path);
+    for (const child of childrenByParentPath.get(path) ?? []) visit(child, nextSeenPaths);
   };
   visit(root, new Set());
   return result;

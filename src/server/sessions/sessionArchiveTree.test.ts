@@ -23,7 +23,7 @@ describe("session archive tree planning", () => {
 
   it("plans recursive descendants and separates already archived targets", () => {
     const root = candidate("root");
-    const child = candidate("child", { parentSessionPath: root.path });
+    const child = candidate("child", { parentSessionPath: "/sessions/./root.jsonl" });
     const archivedChild = candidate("archived-child", { parentSessionPath: root.path, archived: true });
     const grandchild = candidate("grandchild", { parentSessionPath: archivedChild.path });
     const unrelated = candidate("unrelated");

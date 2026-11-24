@@ -13,10 +13,11 @@ const resultMessage = {
 
 function fixture() {
   const manager = SessionManager.inMemory(ref.cwd, { id });
-  const fake = fakeRuntime(id, { sessionManager: manager });
+  const record = sessionRecord(id);
+  const fake = fakeRuntime(id, { sessionManager: manager, sessionFile: record.path });
   const hub = new CapturingSessionEventHub();
   const notifications = new SessionNotificationStore();
-  const records = [sessionRecord(id)];
+  const records = [record];
   const gateway = sessionGateway(records);
   const list = vi.fn((cwd: string) => gateway.list(cwd));
   const archive = vi.fn(() => Promise.resolve({ sessionId: id, cwd: ref.cwd, archivedAt: "2026-01-03T00:00:00Z" }));

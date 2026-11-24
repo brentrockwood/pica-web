@@ -811,6 +811,7 @@ describe("PiSessionService daemon-owned unread state", () => {
         invalidateSessionFile: () => undefined,
         resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([root, directChild, archivedChild, grandchild])),
         open: () => fakeSessionManager(),
+        readArchiveProvenance: (path) => Promise.resolve(path === archivedChildRecord.archivePath ? { id: archivedChild.id, parentSession: root.path } : { id: root.id, cwd: root.cwd }),
       },
       archiveStore: {
         list: () => Promise.resolve([archivedChildRecord]),

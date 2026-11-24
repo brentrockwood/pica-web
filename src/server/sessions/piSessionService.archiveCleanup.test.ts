@@ -76,6 +76,7 @@ describe("PiSessionService archive and cleanup", () => {
         invalidateSessionFile: () => undefined,
         resolveSessionFile: resolveSessionFileFromList((cwd) => Promise.resolve(cwd === "/workspace" ? [root, directChild, archivedChild, grandchild] : [otherWorkspaceChild])),
         open: () => fakeSessionManager(),
+        readArchiveProvenance: () => Promise.resolve({ id: archivedChild.id, parentSession: root.path }),
       },
       heartbeatIntervalMs: 60_000,
     });
