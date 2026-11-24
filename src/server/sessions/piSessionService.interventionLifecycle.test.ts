@@ -22,7 +22,7 @@ async function lifecycleFixture(options: { child?: boolean; archived?: boolean; 
   const root = { ...sessionRecord("root"), path: join(dir, "root.jsonl"), interventionRequired: required };
   const child = { ...sessionRecord("child"), path: join(dir, "child.jsonl"), parentSessionPath: root.path, interventionRequired: true };
   const records = options.child === true ? [root, child] : [root];
-  for (const record of records) await writeFile(record.path, "persisted session\n");
+  for (const record of records) await writeFile(record.path, JSON.stringify({ type: "session", id: record.id, cwd: record.cwd, ...(record.id === child.id ? { parentSession: root.path } : {}) }) + "\n");
   const entries = [{ type: "custom", customType: SESSION_INTERVENTION_CUSTOM_TYPE, data: { version: 1, required } }];
   const manager = fakeSessionManager("/workspace", {
     getSessionId: () => root.id, getSessionFile: () => root.path,

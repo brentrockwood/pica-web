@@ -23,7 +23,7 @@ describe("session archive tree planning", () => {
 
   it("plans recursive descendants and separates already archived targets", () => {
     const root = candidate("root");
-    const child = candidate("child", { parentSessionPath: root.path });
+    const child = candidate("child", { parentSessionPath: "/sessions/./root.jsonl" });
     const archivedChild = candidate("archived-child", { parentSessionPath: root.path, archived: true });
     const grandchild = candidate("grandchild", { parentSessionPath: archivedChild.path });
     const unrelated = candidate("unrelated");
@@ -33,6 +33,16 @@ describe("session archive tree planning", () => {
     expect(plan.targets.map((target) => target.id)).toEqual(["root", "child", "archived-child", "grandchild"]);
     expect(plan.unarchivedTargets.map((target) => target.id)).toEqual(["root", "child", "grandchild"]);
     expect(plan.skippedAlreadyArchivedCount).toBe(1);
+  });
+
+  it.each(["parent", "child"])("refuses a %s transcript path containing '..' before selecting files", (edge) => {
+    // If jump is a symlink, its filesystem parent need not be /sessions.
+    const root = candidate("root");
+    const child = candidate("child", edge === "parent"
+      ? { parentSessionPath: "/sessions/jump/../root.jsonl" }
+      : { parentSessionPath: root.path, path: "/sessions/jump/../child.jsonl" });
+
+    expect(() => planSessionArchiveTree(root, [root, child])).toThrow(/cannot verify.*path/i);
   });
 
   it("stops traversal across cycles", () => {

@@ -3,7 +3,7 @@ import { sessionNotificationSources, type SessionNotificationPresentation } from
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { McpAuthServerOption, McpAuthServersResponse, OAuthFlowState, SessionActivity, SessionQueueMessageMutation } from "../../shared/apiTypes.js";
@@ -58,7 +58,7 @@ import { SessionStatistics } from "./sessionStatistics.js";
 import { projectSessionTree, type ProjectableSessionTreeNode } from "./sessionTreeProjection.js";
 import { messageHistoryTargetId } from "./messageHistoryTarget.js";
 import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInput } from "./sessionArchiveStore.js";
-import { findArchiveCandidateByExactId, planSessionArchiveTree, type SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
+import { archivePathKey, findArchiveCandidateByExactId, hasParentPathSegment, planSessionArchiveTree, type SessionArchiveTreeCandidate } from "./sessionArchiveTree.js";
 import type { ActiveSession } from "./sessionRuntimeStore.js";
 import type { PluginSessionSnapshot } from "../../shared/pluginCatalogTypes.js";
 import type { PiWebHostPiSessionConnection } from "../../server-plugin-api.js";
@@ -102,6 +102,7 @@ import type { SessionRouteRef, SessionRouteService } from "./sessionService.js";
 import { type AuthChange } from "./authService.js";
 import { canonicalizeStoredCwd, cwdPathsEqual } from "../workingDirectory.js";
 import { parsePersistedChildSubsessionLink, parsePersistedParentSubsessionLink, type PersistedChildSubsessionLink, type PersistedParentSubsessionLink } from "./subsessionProvenance.js";
+import { readArchiveProvenance } from "./sessionSummaryScanner.js";
 import { readSessionHeaderSummary } from "./sessionFileHeader.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { createAskUserToolDefinition } from "./askUserTool.js";
@@ -435,6 +436,7 @@ export interface PiSessionManager {
 }
 
 export interface PiSessionManagerGateway {
+  readArchiveProvenance?: typeof readArchiveProvenance;
   list(cwd: string): Promise<PiSessionListEntry[]>;
   /**
    * Locate a session file by full header id equality, without parsing message
@@ -2397,7 +2399,7 @@ export class PiSessionService implements SessionRouteService {
     // Do not yield between these admission checks and acquiring the mutation receipt below.
     if (!this.isCurrentActiveSession(session)) throw new Error("Session changed before message delivery. Retry the message.");
     this.assertSessionArchiveInactive(session.sessionId);
-    if (this.isTreeExclusiveOperationActive(session)) throw new Error("Cannot receive a session message while a session lifecycle operation is active");
+    this.assertSessionLifecycleInactive(session, "receive a session message");
     this.assertTreeNavigationInactive(session, "receive a session message");
     const delivery = this.hasActiveWork(session) ? "queued" : "started";
     let agentStarted = false;
@@ -3428,6 +3430,7 @@ export class PiSessionService implements SessionRouteService {
   }
 
   private beginPromptSubmission(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true, expandPromptTemplates = true): Promise<void> {
+    this.assertSessionLifecycleInactive(session, "send a prompt");
     this.publishActivity(session, behavior === "steer" ? { kind: "steeringQueued" } : behavior === "followUp" ? { kind: "messageQueued" } : { kind: "promptAccepted" }, "active");
     const echoes = this.pendingPromptEchoes.get(session) ?? [];
     const userCount = historyMessagesFromEntries(session.sessionManager.getBranch()).filter((message) => isRecord(message) && message["role"] === "user").length;
@@ -3917,46 +3920,90 @@ export class PiSessionService implements SessionRouteService {
   }
 
   async archiveTree(ref: PiSessionRef): Promise<ClientArchiveSessionsResponse> {
-    return this.archiveSessionTree(await this.getOrOpen(ref), "all-descendants");
+    return this.archiveSessionTree(ref, "all-descendants");
   }
 
   /** Tool preflight: the caller is still running, but every descendant must be idle. */
   async checkSelfArchive(sessionId: string): Promise<void> {
     const session = this.active.get(sessionId)?.runtime.session;
     if (session === undefined) throw new Error("Session not found");
-    const selection = await this.sessionArchiveTargets(session, "tracked-subsessions");
+    const selection = await this.sessionArchiveTargets({ id: sessionId, cwd: session.sessionManager.getCwd() }, "tracked-subsessions");
     this.assertArchiveSelectionCurrent(selection.revision);
     this.assertArchiveTargetsIdle(selection.targets.filter((target) => target.id !== sessionId));
   }
 
-  private async sessionArchiveTargets(session: PiAgentSession, scope: "all-descendants" | "tracked-subsessions"): Promise<{ targets: WorkspaceArchiveCandidate[]; revision: number }> {
+  private async sessionArchiveTargets(ref: PiSessionRef, scope: "all-descendants" | "tracked-subsessions"): Promise<{ targets: WorkspaceArchiveCandidate[]; revision: number }> {
     const revision = this.sessionLifecycleRevision;
     this.assertArchiveSelectionCurrent(revision);
-    const catalog = await this.workspaceArchiveCandidates(session.sessionManager.getCwd());
+    const session = this.activeForRef(ref)?.runtime.session;
+    const { catalog, ambiguousIds } = await this.workspaceArchiveCandidates(ref.cwd);
     this.assertArchiveSelectionCurrent(revision);
-    const root = findArchiveCandidateByExactId(catalog, session.sessionId) ?? archiveCandidateFromActiveSession(session, false);
-    if (scope === "all-descendants") return { targets: planSessionArchiveTree(root, catalog).targets, revision };
+    const assertUnambiguous = (id: string) => {
+      if (ambiguousIds.has(id)) throw new Error(`Ambiguous session file while preparing archival: ${id}`);
+    };
+    assertUnambiguous(ref.id);
+    const root = findArchiveCandidateByExactId(catalog, ref.id);
+    if (root === undefined) throw new Error("Session not found");
+    if (session !== undefined && !archiveCandidateMatchesSession(root, session)) throw new Error(`Session changed while preparing archival: ${root.id}. Retry the request.`);
+    const candidateLinks = async (target: WorkspaceArchiveCandidate, includeLinks: boolean): Promise<readonly PersistedParentSubsessionLink[]> => {
+      // An archived runtime is a cached view; only its backing file grants ancestry.
+      const manager = target.archived ? undefined : target.activeSession?.sessionManager;
+      if (manager !== undefined) {
+        const header = manager.getHeader?.();
+        if (manager.getSessionId() === target.id && (header === undefined || header === null || archivePathsEqual(header.parentSession, target.parentSessionPath))) {
+          return includeLinks ? (manager.getEntries?.() ?? manager.getBranch()).map(parsePersistedParentSubsessionLink).filter((link) => link !== undefined) : [];
+        }
+      } else {
+        const read = this.sessionManager.readArchiveProvenance ?? readArchiveProvenance;
+        const provenance = await read(target.archivePath ?? target.path, includeLinks);
+        this.assertArchiveSelectionCurrent(revision);
+        // Cold active roots have no archive record to establish a legacy header’s workspace.
+        const allowMissingCwd = target.archived || target !== root;
+        if (provenance?.id === target.id && (provenance.cwd === undefined ? allowMissingCwd : cwdPathsEqual(provenance.cwd, target.cwd))
+          && archivePathsEqual(provenance.parentSession, target.parentSessionPath)) return provenance.links ?? [];
+      }
+      throw new Error(`Session changed while preparing archival: ${target.id}. Retry the request.`);
+    };
+    if (scope === "all-descendants") {
+      const { targets } = planSessionArchiveTree(root, catalog);
+      for (const target of targets) {
+        assertUnambiguous(target.id);
+        if (target.archived || (target === root && session === undefined)) await candidateLinks(target, false);
+      }
+      return { targets, revision };
+    }
 
     // Header ancestry also includes forks. Only exact, parent-authored spawn
     // links grant cascading self-archival, including through archived parents.
     const targets: WorkspaceArchiveCandidate[] = [];
     const seen = new Set<string>();
-    const visit = (parent: WorkspaceArchiveCandidate) => {
+    const visit = async (parent: WorkspaceArchiveCandidate): Promise<void> => {
       if (seen.has(parent.id)) return;
       seen.add(parent.id);
       targets.push(parent);
-      const manager = parent.activeSession?.sessionManager ?? this.sessionManager.open(parent.archivePath ?? parent.path);
-      // The SDK opens a new empty session when a file has disappeared. Missing
-      // or replaced transcripts must not silently turn into empty subtrees.
-      if (manager.getSessionId() !== parent.id) throw new Error(`Session changed while preparing archival: ${parent.id}. Retry the request.`);
-      for (const entry of manager.getEntries?.() ?? manager.getBranch()) {
-        const link = parsePersistedParentSubsessionLink(entry);
-        if (link?.spawnedBySessionId !== parent.id) continue;
-        const child = findArchiveCandidateByExactId(catalog, link.spawnedSessionId);
-        if (child !== undefined && child.path === link.spawnedSessionFile && child.parentSessionPath === parent.path && child.cwd === root.cwd) visit(child);
+      const linkedChild = (id: string, path: string | undefined) => {
+        if (path === undefined) return undefined;
+        const child = catalog.find((candidate) => candidate.id === id && archivePathsEqual(candidate.path, path)
+          && candidate.parentSessionPath !== undefined && archivePathsEqual(candidate.parentSessionPath, parent.path));
+        if (child !== undefined) assertUnambiguous(id);
+        return child;
+      };
+      for (const link of await candidateLinks(parent, true)) {
+        if (link.spawnedBySessionId !== parent.id) continue;
+        const child = linkedChild(link.spawnedSessionId, link.spawnedSessionFile);
+        if (child !== undefined) await visit(child);
+      }
+      // A spawn is tracked before its parent custom entry is persisted. Never
+      // omit a known child just because appending that entry failed.
+      for (const id of this.subsessionChildren.get(parent.id) ?? []) {
+        const link = this.subsessionLinks.get(id);
+        if (link?.parentSessionFile !== undefined && !archivePathsEqual(link.parentSessionFile, parent.path)) continue;
+        const child = link?.parentSessionFile === undefined ? undefined : linkedChild(id, link.childSessionFile);
+        if (child === undefined) throw new Error(`Cannot verify tracked child while preparing archival: ${id}`);
+        await visit(child);
       }
     };
-    visit(root);
+    await visit(root);
     return { targets, revision };
   }
 
@@ -3972,6 +4019,7 @@ export class PiSessionService implements SessionRouteService {
   private assertArchiveTargetsIdle(targets: readonly WorkspaceArchiveCandidate[]): void {
     const busy = targets.filter((target) => {
       const session = this.active.get(target.id)?.runtime.session;
+      if (session !== undefined && !archiveCandidateMatchesSession(target, session)) throw new Error(`Session changed while preparing archival: ${target.id}. Retry the request.`);
       return this.pendingSessionOpenPromises(target.id).length > 0
         || this.isTreeExclusiveSessionIdentityActive(target.id)
         || (session !== undefined && this.hasActiveWork(session));
@@ -3979,22 +4027,23 @@ export class PiSessionService implements SessionRouteService {
     if (busy.length > 0) throw new Error(`Wait for or stop active sessions before archiving: ${busy.map((target) => target.id).join(", ")}`);
   }
 
-  private async archiveSessionTree(session: PiAgentSession, scope: "all-descendants" | "tracked-subsessions"): Promise<ClientArchiveSessionsResponse> {
+  private async archiveSessionTree(ref: PiSessionRef, scope: "all-descendants" | "tracked-subsessions"): Promise<ClientArchiveSessionsResponse> {
     // Reserve the root before metadata I/O; reserve descendants synchronously
     // after discovery. Admission checks protect opens and mutation receipts
     // even after closeActive has removed their runtimes from the active map.
-    this.assertSessionArchiveInactive(session.sessionId);
-    this.archivingSessionIds.add(session.sessionId);
-    const reserved = [session.sessionId];
+    this.assertSessionArchiveInactive(ref.id);
+    if (this.pendingSessionOpenPromises(ref.id).length > 0) throw new Error(`Wait for or stop active sessions before archiving: ${ref.id}`);
+    this.archivingSessionIds.add(ref.id);
+    const reserved = [ref.id];
     try {
-      const { targets, revision } = await this.sessionArchiveTargets(session, scope);
+      const { targets, revision } = await this.sessionArchiveTargets(ref, scope);
       this.assertArchiveSelectionCurrent(revision);
       this.assertArchiveTargetsIdle(targets);
       for (const target of targets) {
-        if (target.id !== session.sessionId) this.assertSessionArchiveInactive(target.id);
+        if (target.id !== ref.id) this.assertSessionArchiveInactive(target.id);
       }
       for (const target of targets) {
-        if (target.id === session.sessionId) continue;
+        if (target.id === ref.id) continue;
         this.archivingSessionIds.add(target.id);
         reserved.push(target.id);
       }
@@ -4120,15 +4169,16 @@ export class PiSessionService implements SessionRouteService {
     const session = await this.getOrOpen(ref);
     const sessionFile = session.sessionFile;
     if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
-    await clearParentSession(sessionFile);
-    // The header rewrite keeps the inode, and whenever it leaves the file's
-    // size unchanged it is invisible to the gateway's summary memo, which
-    // cannot detect such rewrites from identity + size alone and would keep
-    // listing the old parent link until restart.
-    this.sessionManager.invalidateSessionFile(sessionFile);
-    clearParentSessionHeader(session.sessionManager);
-    this.unregisterSubsession(session.sessionId);
-    await this.forgetUnreadSessions([{ sessionId: session.sessionId, cwd: session.sessionManager.getCwd() }]);
+    this.assertSessionArchiveInactive(session.sessionId);
+    await this.runTreeExclusiveOperation([{ sessionId: session.sessionId, session }], "Stop current session activity before detaching", async () => {
+      await this.assertWritable(ref);
+      await clearParentSession(sessionFile);
+      // The header-only rewrite preserves inode and size, the gateway's memo keys.
+      this.sessionManager.invalidateSessionFile(sessionFile);
+      clearParentSessionHeader(session.sessionManager);
+      this.unregisterSubsession(session.sessionId);
+      await this.forgetUnreadSessions([{ sessionId: session.sessionId, cwd: session.sessionManager.getCwd() }]);
+    });
   }
 
   async mutateQueueMessage(ref: PiSessionRef, input: SessionQueueMessageMutation): Promise<ClientSessionStatus> {
@@ -4306,14 +4356,35 @@ export class PiSessionService implements SessionRouteService {
   }
 
   private executeDeleteArchivedBatch(records: readonly ArchivedSessionRecord[]): Promise<SessionBatchExecutionResult<ArchivedSessionRecord>> {
-    return this.executeSessionLifecycleBatch(records, "delete", (ready) =>
-      this.archiveStoreDeleteArchivedMany(ready.map((record) => record.sessionId)));
+    return this.executeSessionLifecycleBatch(records, "delete", async (ready, failures) => {
+      if (ready.length === 0) return [];
+      const batchDeleted = this.archiveStore.deleteArchivedMany === undefined ? undefined
+        : new Set(await this.archiveStore.deleteArchivedMany(ready.map((record) => record.sessionId)));
+      const deleted: string[] = [];
+      for (const record of ready) {
+        if (batchDeleted === undefined) {
+          if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
+          try {
+            await this.archiveStore.deleteArchived(record.sessionId);
+          } catch (error: unknown) {
+            failures.push({ sessionId: record.sessionId, error: errorMessage(error) });
+            continue;
+          }
+        } else if (!batchDeleted.has(record.sessionId)) continue;
+        deleted.push(record.sessionId);
+        const link = this.subsessionLinks.get(record.sessionId);
+        if (link?.childSessionFile !== undefined && record.originalPath !== undefined
+          && !hasParentPathSegment(record.originalPath) && !hasParentPathSegment(link.childSessionFile)
+          && sessionPathsEqual(record.originalPath, link.childSessionFile)) this.unregisterSubsession(record.sessionId);
+      }
+      return deleted;
+    });
   }
 
   private async executeSessionLifecycleBatch<T extends { sessionId: string; cwd: string }>(
     items: readonly T[],
     reason: "archive" | "delete",
-    persist: (ready: readonly T[]) => Promise<string[]>,
+    persist: (ready: readonly T[], failures: SessionBulkFailure[]) => Promise<string[]>,
   ): Promise<SessionBatchExecutionResult<T>> {
     const result: SessionBatchExecutionResult<T> = { successes: [], failures: [], skippedBusySessionIds: [] };
     const targets: TreeExclusiveOperationTarget[] = [];
@@ -4341,7 +4412,7 @@ export class PiSessionService implements SessionRouteService {
         }
       }
       try {
-        const persistedIds = await persist(ready);
+        const persistedIds = await persist(ready, result.failures);
         const readyById = new Map(ready.map((item) => [item.sessionId, item]));
         result.successes = persistedIds.flatMap((sessionId) => {
           const item = readyById.get(sessionId);
@@ -4364,14 +4435,6 @@ export class PiSessionService implements SessionRouteService {
     const records: ArchivedSessionRecord[] = [];
     for (const input of oldestFirst) records.push(await this.archiveStore.archive(input));
     return records;
-  }
-
-  private async archiveStoreDeleteArchivedMany(sessionIds: readonly string[]): Promise<string[]> {
-    if (sessionIds.length === 0) return [];
-    if (this.archiveStore.deleteArchivedMany !== undefined) return this.archiveStore.deleteArchivedMany(sessionIds);
-    if (this.archiveStore.deleteArchived === undefined) throw new Error("Archive store does not support deletion");
-    for (const sessionId of sessionIds) await this.archiveStore.deleteArchived(sessionId);
-    return [...sessionIds];
   }
 
   private async cleanupPlan(request: NormalizedSessionCleanupRequest) {
@@ -4414,38 +4477,66 @@ export class PiSessionService implements SessionRouteService {
     return archiveInputFromActiveSession(session);
   }
 
-  private async workspaceArchiveCandidates(cwd: string): Promise<WorkspaceArchiveCandidate[]> {
+  private async workspaceArchiveCandidates(cwd: string): Promise<{ catalog: WorkspaceArchiveCandidate[]; ambiguousIds: Set<string> }> {
     const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
-    const candidates = new Map<string, WorkspaceArchiveCandidate>();
-    const archivedById = new Map<string, ArchivedSessionRecord>();
-
+    const groups = new Map<string, WorkspaceArchiveCandidate[]>();
+    const ambiguousIds = new Set<string>();
+    const groupFor = (id: string) => {
+      const group = groups.get(id) ?? [];
+      groups.set(id, group);
+      return group;
+    };
+    for (const listed of sessions) {
+      if (cwdPathsEqual(listed.cwd, cwd)) groupFor(listed.id).push(archiveCandidateFromListEntry(listed));
+    }
     for (const record of archivedRecords) {
-      if (record.cwd === cwd) archivedById.set(record.sessionId, record);
-    }
-
-    for (const session of sessions) {
-      const archived = archivedById.get(session.id);
-      if (archived === undefined) candidates.set(session.id, archiveCandidateFromListEntry(session));
-      else {
-        const candidate = archiveCandidateFromArchivedRecord(archived, session);
-        if (candidate !== undefined) candidates.set(candidate.id, candidate);
+      const group = groupFor(record.sessionId);
+      if (!cwdPathsEqual(record.cwd, cwd)) {
+        ambiguousIds.add(record.sessionId);
+        continue;
       }
+      // Legacy index-only records used the listed file. That fallback requires
+      // a unique listing; an explicit originalPath must match the listed file.
+      const match = group.find((row) => !row.archived && (record.originalPath === undefined
+        ? group.length === 1 : archivePathsEqual(row.path, record.originalPath)));
+      const archived = archiveCandidateFromArchivedRecord(record, match?.listEntry);
+      if (archived === undefined) ambiguousIds.add(record.sessionId);
+      else if (match !== undefined && archivePathsEqual(match.parentSessionPath, archived.parentSessionPath)) {
+        Object.assign(match, archived);
+      } else group.push(archived);
     }
-
-    for (const record of archivedById.values()) {
-      if (candidates.has(record.sessionId)) continue;
-      const candidate = archiveCandidateFromArchivedRecord(record, undefined);
-      if (candidate !== undefined) candidates.set(candidate.id, candidate);
-    }
-
     for (const active of new Set(this.active.values())) {
       const session = active.runtime.session;
-      if (session.sessionManager.getCwd() !== cwd || archivedById.has(session.sessionId)) continue;
-      const existing = candidates.get(session.sessionId);
-      candidates.set(session.sessionId, { ...(existing ?? archiveCandidateFromActiveSession(session, false)), activeSession: session });
+      if (!cwdPathsEqual(session.sessionManager.getCwd(), cwd) || session.sessionFile === undefined || session.sessionFile === "") {
+        ambiguousIds.add(session.sessionId);
+        continue;
+      }
+      const group = groupFor(session.sessionId);
+      const match = group.find((row) => archiveCandidateMatchesSession(row, session));
+      const header = session.sessionManager.getHeader?.();
+      if (match !== undefined && (header === undefined || header === null || archivePathsEqual(header.parentSession, match.parentSessionPath))) {
+        match.activeSession = session;
+      } else group.push(archiveCandidateFromActiveSession(session, false));
     }
 
-    return [...candidates.values()];
+    // Keep all conflicting edges for traversal: ambiguity is a reason to
+    // reject a selected child, never a reason to drop it from its parent.
+    const catalog = [...groups.values()].flat();
+    const pathOwners = new Map<string, string>();
+    for (const row of catalog) {
+      if (groupFor(row.id).length > 1) ambiguousIds.add(row.id);
+      for (const path of [row.path, row.archivePath]) {
+        if (path === undefined) continue;
+        const key = archivePathKey(path);
+        const owner = pathOwners.get(key);
+        if (owner !== undefined && owner !== row.id) {
+          ambiguousIds.add(owner);
+          ambiguousIds.add(row.id);
+        }
+        pathOwners.set(key, row.id);
+      }
+    }
+    return { catalog, ambiguousIds };
   }
 
   private async listSessionNames(cwd: string): Promise<string[]> {
@@ -4665,7 +4756,7 @@ export class PiSessionService implements SessionRouteService {
   private async getArchived(ref: PiSessionRef): Promise<ArchivedSessionRecord | undefined> {
     const archived = await this.archiveStore.get(ref.id);
     if (archived === undefined) return undefined;
-    if (archived.cwd !== ref.cwd) return undefined;
+    if (!cwdPathsEqual(archived.cwd, ref.cwd)) return undefined;
     return archived;
   }
 
@@ -5353,7 +5444,7 @@ export class PiSessionService implements SessionRouteService {
         this.notifySelfArchive(session, "Self-archival canceled because this session has active or queued work.", "warning");
         return;
       }
-      const operation = this.archiveSessionTree(session, "tracked-subsessions").then(async () => {
+      const operation = this.archiveSessionTree({ id: session.sessionId, cwd: session.sessionManager.getCwd() }, "tracked-subsessions").then(async () => {
         try {
           await this.onSessionArchived?.(session.sessionManager.getCwd());
         } catch (error: unknown) {
@@ -5657,8 +5748,13 @@ export class PiSessionService implements SessionRouteService {
     }
   }
 
+  private assertSessionLifecycleInactive(session: PiAgentSession, action: string): void {
+    if (this.isTreeExclusiveOperationActive(session)) throw new Error(`Cannot ${action} while a session lifecycle operation is active`);
+  }
+
   private beginSessionEntryMutation(session: PiAgentSession, action: string): void {
     this.assertSessionArchiveInactive(session.sessionId);
+    this.assertSessionLifecycleInactive(session, action);
     if (this.selfArchiveRequests.delete(session)) {
       this.notifySelfArchive(session, "Self-archival canceled because new session work was submitted.", "warning");
     }
@@ -6119,6 +6215,14 @@ function archiveCandidateFromActiveSession(session: PiAgentSession, archived: bo
   };
 }
 
+function archivePathsEqual(a: string | undefined, b: string | undefined): boolean {
+  return a === undefined || b === undefined ? a === b : archivePathKey(a) === archivePathKey(b);
+}
+
+function archiveCandidateMatchesSession(candidate: WorkspaceArchiveCandidate, session: PiAgentSession): boolean {
+  return archivePathsEqual(nonEmptyString(session.sessionFile), candidate.archivePath ?? candidate.path);
+}
+
 function archiveInputFromCandidate(candidate: WorkspaceArchiveCandidate): ArchiveSessionInput {
   if (candidate.listEntry !== undefined) return archiveInputFromListEntry(candidate.listEntry);
   if (candidate.activeSession !== undefined) return archiveInputFromActiveSession(candidate.activeSession);
@@ -6323,15 +6427,30 @@ async function sessionFileHeaderMatches(sessionFile: string, expected: { session
 }
 
 async function clearParentSession(sessionFile: string): Promise<void> {
-  const content = await readFile(sessionFile, "utf8");
-  const newlineIndex = content.indexOf("\n");
-  const firstLine = newlineIndex === -1 ? content : content.slice(0, newlineIndex);
-  const rest = newlineIndex === -1 ? "" : content.slice(newlineIndex);
-  const header: unknown = JSON.parse(firstLine);
-  if (!isRecord(header) || header["type"] !== "session") throw new Error("Invalid session file header");
-  if (header["parentSession"] === undefined) return;
-  delete header["parentSession"];
-  await writeFile(sessionFile, `${JSON.stringify(header)}${rest}`, "utf8");
+  const file = await open(sessionFile, "r+");
+  try {
+    const content = await file.readFile();
+    const newline = content.indexOf(0x0a);
+    const end = newline < 0 ? content.length : newline;
+    const length = end > 0 && content[end - 1] === 0x0d ? end - 1 : end;
+    const header: unknown = JSON.parse(content.toString("utf8", 0, length));
+    if (!isRecord(header) || header["type"] !== "session") throw new Error("Invalid session file header");
+    if (header["parentSession"] === undefined) return;
+    delete header["parentSession"];
+    // Some SDK appends bypass service admission. Never truncate or move the transcript body.
+    const json = Buffer.from(JSON.stringify(header));
+    if (json.length > length) throw new Error("Detached session header exceeds its original length");
+    const padded = content.subarray(0, length);
+    json.copy(padded);
+    padded.fill(0x20, json.length);
+    for (let offset = 0; offset < length;) {
+      const { bytesWritten } = await file.write(padded, offset, length - offset, offset);
+      if (bytesWritten === 0) throw new Error("Could not finish writing detached session header");
+      offset += bytesWritten;
+    }
+  } finally {
+    await file.close();
+  }
 }
 
 function clearParentSessionHeader(sessionManager: PiSessionManager): void {

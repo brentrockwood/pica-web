@@ -8,6 +8,7 @@ import type { SessionUiMetadata } from "../../shared/pluginApiTypes.js";
 import { sessionUiMetadataFromEntry } from "./sessionMetadata.js";
 import { interventionStateFromEntry } from "./sessionIntervention.js";
 import { isNodeErrorWithCode } from "../workspaces/pathSafety.js";
+import { readSessionHeaderSummary, type SessionHeaderSummary } from "./sessionFileHeader.js";
 import { cwdPathsEqual } from "../workingDirectory.js";
 import { parsePersistedChildSubsessionLink, parsePersistedParentSubsessionLink, type PersistedChildSubsessionLink, type PersistedParentSubsessionLink } from "./subsessionProvenance.js";
 
@@ -228,6 +229,19 @@ export class SessionSummaryScanner {
     this.memo.set(filePath, { dev: scanned.dev, ino: scanned.ino, size: scanned.size, fold: scanned.fold });
     return buildSummaryFromFold(scanned.fold, filePath, scanned.mtime);
   }
+}
+
+/** Read archive provenance without asking the SDK to initialize or migrate the transcript. */
+export async function readArchiveProvenance(path: string, includeLinks: boolean): Promise<(SessionHeaderSummary & { links?: readonly PersistedParentSubsessionLink[] }) | undefined> {
+  if (!includeLinks) return readSessionHeaderSummary(path);
+  const file = await scanWholeSessionFile(path, () => Buffer.allocUnsafe(SCAN_CHUNK_BYTES), true);
+  if (file === undefined) return undefined;
+  const summary = buildSummaryFromFold(file.fold, path, file.mtime);
+  if (summary === undefined) return undefined;
+  return {
+    id: summary.id, ...(summary.cwd === "" ? {} : { cwd: summary.cwd }),
+    ...(summary.parentSessionPath === undefined ? {} : { parentSession: summary.parentSessionPath }), links: file.fold.parentLinks ?? [],
+  };
 }
 
 /** One memoized file: the identity and size it was scanned at, plus its summary state. */
